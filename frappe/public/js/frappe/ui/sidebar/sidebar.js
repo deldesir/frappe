@@ -252,6 +252,8 @@ frappe.ui.Sidebar = class Sidebar {
 		this.workspace_sidebar_items = updated_items;
 	}
 	setup(workspace_title) {
+		if (!workspace_title) return;
+
 		if (!this.onboarding_widget) {
 			this.onboarding_widget = {};
 		}
