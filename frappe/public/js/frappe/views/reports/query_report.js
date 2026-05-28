@@ -890,9 +890,10 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 				function () {
 					window.open(
 						frappe.urllib.get_full_url(
+							((frappe.router && frappe.router._subpath_prefix) || "") +
 							"/api/method/frappe.core.doctype.prepared_report.prepared_report.download_attachment?" +
-								"dn=" +
-								encodeURIComponent(doc.name)
+							"dn=" +
+							encodeURIComponent(doc.name)
 						)
 					);
 				},

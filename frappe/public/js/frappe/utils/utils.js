@@ -1304,7 +1304,7 @@ Object.assign(frappe.utils, {
 				},
 			},
 		},
-		image_path: "/assets/frappe/images/leaflet/",
+		image_path: ((typeof frappe !== "undefined" && frappe.router && frappe.router._subpath_prefix) || "") + "/assets/frappe/images/leaflet/",
 	},
 	get_route_for_icon(desktop_icon) {
 		let route;

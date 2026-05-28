@@ -160,7 +160,7 @@ frappe.views.FileView = class FileView extends frappe.views.ListView {
 		this.page.add_actions_menu_item(__("Export as zip"), () => {
 			let docnames = this.get_checked_items(true);
 			if (docnames.length) {
-				open_url_post("/api/method/frappe.core.api.file.zip_files", {
+				open_url_post(((frappe.router && frappe.router._subpath_prefix) || "") + "/api/method/frappe.core.api.file.zip_files", {
 					files: JSON.stringify(docnames),
 				});
 			}
