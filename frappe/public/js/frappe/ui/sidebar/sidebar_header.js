@@ -350,10 +350,12 @@ frappe.ui.SidebarHeader = class SidebarHeader {
 					${
 						item.icon
 							? frappe.utils.icon(item.icon)
-							: `<img
+							: item.icon_url
+							? `<img
 							class="logo"
 							src="${item.icon_url}"
 						>`
+							: item.icon_html || ""
 					}
 				</div>
 				<span class="menu-item-title">${item.label}</span>

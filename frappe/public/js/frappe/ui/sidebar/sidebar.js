@@ -636,7 +636,7 @@ frappe.ui.Sidebar = class Sidebar {
 		try {
 			let route = frappe.get_route();
 			let view, entity_name;
-			let sidebar_item_map = JSON.parse(localStorage.getItem("sidebar_item_map"));
+			let sidebar_item_map = JSON.parse(localStorage.getItem("sidebar_item_map")) || {};
 			switch (route.length) {
 				case 1:
 					view = "Page";
