@@ -147,7 +147,7 @@ frappe.ui.form.Attachments = class Attachments {
 			};
 		}
 
-		const icon = `<a href="/desk/file/${fileid}" class="attachment-icon">
+		const icon = `<a href="${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/file/${fileid}" class="attachment-icon">
 				${frappe.utils.icon(attachment.is_private ? "es-line-lock" : "es-line-unlock", "sm ml-0")}
 			</a>`;
 
@@ -177,7 +177,7 @@ frappe.ui.form.Attachments = class Attachments {
 			if (attachment.file_name.indexOf("files/") === 0) {
 				file_url = "/" + attachment.file_name;
 			} else {
-				file_url = "/files/" + attachment.file_name;
+				file_url = ((frappe.router && frappe.router._subpath_prefix) || "") + "/files/" + attachment.file_name;
 			}
 		}
 

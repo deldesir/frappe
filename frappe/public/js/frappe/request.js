@@ -88,9 +88,10 @@ frappe.call = function (opts) {
 
 	let url = opts.url;
 	if (!url) {
-		let prefix = "/api/method/";
+		const _sp = (frappe.router && frappe.router._subpath_prefix) || "";
+		let prefix = _sp + "/api/" + "method/";
 		if (opts.api_version) {
-			prefix = `/api/${opts.api_version}/method/`;
+			prefix = `${_sp}/api/${opts.api_version}/` + "method/";
 		}
 		url = prefix + args.cmd;
 		if (window.cordova) {

@@ -929,7 +929,8 @@ Object.assign(frappe.utils, {
 	) {
 		display_text = display_text || name;
 		name = encodeURIComponent(name);
-		let route = `/desk/${encodeURIComponent(
+		const _p = (frappe.router && frappe.router._subpath_prefix) || "";
+		let route = `${_p}/desk/${encodeURIComponent(
 			doctype.toLowerCase().replace(/ /g, "-")
 		)}/${name}`;
 		if (query_params_obj) {
@@ -1334,9 +1335,9 @@ Object.assign(frappe.utils, {
 						let workspaces = frappe.workspaces[frappe.router.slug(first_link.link_to)];
 						if (workspaces) {
 							if (workspaces.public) {
-								route = "/desk/" + frappe.router.slug(first_link.link_to);
+								route = ((frappe.router && frappe.router._subpath_prefix) || "") + "/desk/" + frappe.router.slug(first_link.link_to);
 							} else {
-								route = "/desk/private/" + frappe.router.slug(workspaces.title);
+								route = ((frappe.router && frappe.router._subpath_prefix) || "") + "/desk/private/" + frappe.router.slug(workspaces.title);
 							}
 						}
 
@@ -1611,7 +1612,7 @@ Object.assign(frappe.utils, {
 		// (item.doctype && frappe.model.can_read(item.doctype))) {
 		//     item.shown = true;
 		// }
-		return `/desk/${route}`;
+		return `${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${route}`;
 	},
 
 	shorten_number: function (number, country, min_length = 4, max_no_of_decimals = 2) {

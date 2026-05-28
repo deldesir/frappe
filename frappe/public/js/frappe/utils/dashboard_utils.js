@@ -278,7 +278,7 @@ frappe.dashboard_utils = {
 				values.name = docname;
 				values.set_standard = frappe.boot.developer_mode;
 				frappe.xcall(method, { args: values }).then(() => {
-					let dashboard_route_html = `<a href = "/desk/dashboard/${values.dashboard}">${values.dashboard}</a>`;
+					let dashboard_route_html = `<a href = "${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/dashboard/${values.dashboard}">${values.dashboard}</a>`;
 					let message = __("{0} {1} added to Dashboard {2}", [
 						doctype,
 						values.name,

@@ -395,7 +395,7 @@ frappe.Application = class Application {
 		frappe.app.redirect_to_login();
 	}
 	redirect_to_login() {
-		window.location.href = `/login?redirect-to=${encodeURIComponent(
+		window.location.href = `${frappe.router && frappe.router._subpath_prefix || ""}/login?redirect-to=${encodeURIComponent(
 			window.location.pathname + window.location.search
 		)}`;
 	}

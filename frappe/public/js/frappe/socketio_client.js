@@ -48,21 +48,30 @@ class RealTimeClient {
 		this.lazy_connect = lazy_connect;
 		let me = this;
 
+		// URL so socket.io connects through Nginx at /erp/socket.io/
+		// instead of the root /socket.io/.
+		var pathname = window.location.pathname;
+		var parts = pathname.split("/");
+		var first = parts[1] || "";
+		var iiab_subpath = "";
+		if (first && !["desk", "login", "app", "builder", "webshop", "crm", "pos", "hrms", "assets", "files", "api", "protected", "private"].includes(first)) {
+			iiab_subpath = "/" + first;
+		}
+		var socket_path = iiab_subpath ? iiab_subpath + "/socket" + ".io" : "/socket" + ".io";
+
+		var socket_opts = {
+			withCredentials: true,
+			reconnectionAttempts: 3,
+			autoConnect: !lazy_connect,
+			path: socket_path,
+		};
+
 		// Enable secure option when using HTTPS
 		if (window.location.protocol == "https:") {
-			this.socket = io(this.get_host(port), {
-				secure: true,
-				withCredentials: true,
-				reconnectionAttempts: 3,
-				autoConnect: !lazy_connect,
-			});
-		} else if (window.location.protocol == "http:") {
-			this.socket = io(this.get_host(port), {
-				withCredentials: true,
-				reconnectionAttempts: 3,
-				autoConnect: !lazy_connect,
-			});
+			socket_opts.secure = true;
 		}
+
+		this.socket = io(this.get_host(port), socket_opts);
 
 		if (!this.socket) {
 			console.log("Unable to connect to " + this.get_host(port));
@@ -127,7 +136,7 @@ class RealTimeClient {
 			}
 			host = host + ":" + port;
 		}
-		return host + `/${frappe.boot.sitename}`;
+		return host;
 	}
 
 	subscribe(task_id, opts) {
