@@ -6,7 +6,7 @@ from frappe.desk.doctype.desktop_icon.desktop_icon import get_desktop_icons
 
 def get_context(context):
 	if frappe.session.user == "Guest":
-		frappe.local.flags.redirect_location = "/app"
+		frappe.local.flags.redirect_location = (frappe.conf.http_relative_url_root or "") + "/app"
 		raise frappe.Redirect
 	brand_logo = None
 	brand_logo = frappe.get_single_value("Navbar Settings", "app_logo")
