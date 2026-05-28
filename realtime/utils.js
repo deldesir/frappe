@@ -5,13 +5,11 @@ function get_url(socket, path) {
 	if (!path) {
 		path = "";
 	}
-	let url = socket.request.headers.origin;
-	if (conf.developer_mode) {
-		let [protocol, host, port] = url.split(":");
-		port = conf.webserver_port;
-		url = `${protocol}:${host}:${port}`;
-	}
-	return url + path;
+	// Always use the local Gunicorn for auth validation.
+	// The Origin header points to the public hostname (e.g. https://domain.com)
+	// which the server often can't reach from inside (hairpin NAT, DNS, firewall).
+	let port = conf.webserver_port || 8000;
+	return `http://127.0.0.1:${port}${path}`;
 }
 
 module.exports = {
