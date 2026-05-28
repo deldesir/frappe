@@ -14,8 +14,12 @@ function authenticate_with_frappe(socket, next) {
 	let namespace = socket.nsp.name;
 	namespace = namespace.slice(1, namespace.length); // remove leading `/`
 
-	if (namespace != get_site_name(socket)) {
+	// When behind a reverse proxy (e.g. /erp/socket.io/), the client connects
+	// with the default "/" namespace (empty after slice). Accept it since the
+	// site is identified via X-Frappe-Site-Name header or hostname/origin.
+	if (namespace && namespace != get_site_name(socket)) {
 		next(new Error("Invalid namespace"));
+		return;
 	}
 
 	if (get_hostname(socket.request.headers.host) != get_hostname(socket.request.headers.origin)) {
@@ -48,7 +52,11 @@ function authenticate_with_frappe(socket, next) {
 			path = path + "?" + query_args.toString();
 		}
 
-		let headers = {};
+		let headers = {
+			// When fetching via 127.0.0.1, Gunicorn needs the Host header
+			// to identify the site in multi-tenant setups.
+			"Host": get_site_name(socket) || "localhost",
+		};
 		if (socket.authorization_header) {
 			headers["Authorization"] = socket.authorization_header;
 		} else if (socket.sid) {
