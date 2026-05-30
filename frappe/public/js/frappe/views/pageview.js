@@ -125,7 +125,7 @@ frappe.show_not_found = function (page_name) {
 	frappe.show_message_page({
 		page_name: page_name,
 		message: __("Sorry! I could not find what you were looking for."),
-		img: "/assets/frappe/images/ui/bubble-tea-sorry.svg",
+		img: ((frappe.router && frappe.router._subpath_prefix) || "") + "/assets/frappe/images/ui/bubble-tea-sorry.svg",
 	});
 };
 
@@ -133,7 +133,7 @@ frappe.show_not_permitted = function (page_name) {
 	frappe.show_message_page({
 		page_name: page_name,
 		message: __("Sorry! You are not permitted to view this page."),
-		img: "/assets/frappe/images/ui/bubble-tea-sorry.svg",
+		img: ((frappe.router && frappe.router._subpath_prefix) || "") + "/assets/frappe/images/ui/bubble-tea-sorry.svg",
 		// icon: "octicon octicon-circle-slash"
 	});
 };

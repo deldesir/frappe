@@ -302,7 +302,7 @@ frappe.ui.Dialog = class Dialog extends frappe.ui.FieldGroup {
 
 	show() {
 		// show it
-		if (window.location.pathname.startsWith("/desk")) {
+		if (window.location.pathname.includes("/desk")) {
 			this.handle_focus();
 		}
 

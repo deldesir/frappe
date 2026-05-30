@@ -5,7 +5,7 @@ frappe.logout = function () {
 			if (r.exc) {
 				return;
 			}
-			window.location.href = "/login";
+			window.location.href = ((frappe.router && frappe.router._subpath_prefix) || "") + "/login";
 		},
 	});
 };

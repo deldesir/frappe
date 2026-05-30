@@ -142,6 +142,7 @@ export default class BulkOperations {
 					});
 			} else {
 				const w = window.open(
+					((frappe.router && frappe.router._subpath_prefix) || "") +
 					"/api/method/frappe.utils.print_format.download_multi_pdf?" +
 						"doctype=" +
 						encodeURIComponent(this.doctype) +

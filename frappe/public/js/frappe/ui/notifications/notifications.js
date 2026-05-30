@@ -261,7 +261,7 @@ class NotificationsView extends BaseNotificationsView {
 		if (this.container.find(".activity-status")) {
 			this.container.find(".activity-status").replaceWith(
 				`<a class="recent-item text-center text-muted"
-					href="/desk/List/Notification Log">
+					href="${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/List/Notification Log">
 					<div class="full-log-btn">${__("View Full Log")}</div>
 				</a>`
 			);
@@ -351,7 +351,7 @@ class NotificationsView extends BaseNotificationsView {
 					this.container.append(this.get_dropdown_item_html(notification_log));
 				});
 				this.container.append(`<a class="list-footer"
-					href="/desk/List/Notification Log">
+					href="${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/List/Notification Log">
 						<div class="full-log-btn">${__("See all Activity")}</div>
 					</a>`);
 			} else {
@@ -522,7 +522,7 @@ class EventsView extends BaseNotificationsView {
 					location = `, ${event.location}`;
 				}
 
-				return `<a class="recent-item event" href="/desk/event/${event.name}">
+				return `<a class="recent-item event" href="${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/event/${event.name}">
 					<div class="event-border" style="border-color: ${event.color}"></div>
 					<div class="event-item">
 						<div class="event-subject">${event.subject}</div>
@@ -536,7 +536,7 @@ class EventsView extends BaseNotificationsView {
 			html = `
 				<div class="notification-null-state">
 					<div class="text-center">
-					<img src="/assets/frappe/images/ui-states/event-empty-state.svg" alt="Generic Empty State" class="null-state">
+					<img src="${(frappe.router && frappe.router._subpath_prefix) || ""}/assets/frappe/images/ui-states/event-empty-state.svg" alt="Generic Empty State" class="null-state">
 					<div class="title">${__("No Upcoming Events")}</div>
 					<div class="subtitle">
 						${__("There are no upcoming events for you.")}
@@ -585,7 +585,7 @@ class ChangelogFeedView extends BaseNotificationsView {
 		} else {
 			html = `<div class="notification-null-state">
 						<div class="text-center">
-							<img src="/assets/frappe/images/ui-states/notification-empty-state.svg" alt="Generic Empty State" class="null-state">
+							<img src="${(frappe.router && frappe.router._subpath_prefix) || ""}/assets/frappe/images/ui-states/notification-empty-state.svg" alt="Generic Empty State" class="null-state">
 							<div class="title">${__("Nothing New")}</div>
 							<div class="subtitle">
 								${__("There is nothing new to show you right now.")}

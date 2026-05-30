@@ -1379,7 +1379,7 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 			return this.settings.get_form_link(doc);
 		}
 
-		return `/desk/${encodeURIComponent(
+		return `${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${encodeURIComponent(
 			frappe.router.slug(frappe.router.doctype_layout || this.doctype)
 		)}/${encodeURIComponent(cstr(doc.name))}`;
 	}

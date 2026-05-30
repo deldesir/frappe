@@ -148,7 +148,7 @@ frappe.search.SearchDialog = class {
 		$shell.find(".results-area").html(
 			`<div class="empty-state">
 				<div class="text-center">
-					<img src="/assets/frappe/images/ui-states/search-empty-state.svg"
+					<img src="${((frappe.router && frappe.router._subpath_prefix) || "")}/assets/frappe/images/ui-states/search-empty-state.svg"
 						alt="Generic Empty State"
 						class="null-state"
 					>
