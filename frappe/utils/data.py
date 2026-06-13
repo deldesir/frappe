@@ -1965,6 +1965,12 @@ def get_url(
 	):
 		host_name = host_name + ":" + str(port)
 
+	# Ensure host_name path ends with / so urljoin preserves the subpath (e.g. /erp/)
+	if host_name and uri and not uri.startswith(("/", "http://", "https://")):
+		from urllib.parse import urlparse
+		parsed = urlparse(host_name)
+		if parsed.path and not parsed.path.endswith("/"):
+			host_name = host_name.rstrip("/") + "/"
 	return urljoin(host_name, uri) if uri else host_name
 
 
