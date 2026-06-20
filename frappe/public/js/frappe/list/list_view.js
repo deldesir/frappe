@@ -591,6 +591,18 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 
 	before_refresh() {
 		if (frappe.route_options && this.filter_area) {
+			if (frappe.route_options.reset_filters) {
+				frappe.route_options = null;
+				const url = new URL(window.location.href);
+				url.searchParams.delete("reset_filters");
+				history.replaceState(history.state, "", url.toString());
+				this._set_breadcrumb_layout(null);
+				return this.filter_area.clear();
+			}
+
+			const layout_name = frappe.route_options._layout || null;
+			this._set_breadcrumb_layout(layout_name);
+
 			this.filters = this.parse_filters_from_route_options();
 			frappe.route_options = null;
 
@@ -602,6 +614,15 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 		}
 
 		return Promise.resolve();
+	}
+
+	_set_breadcrumb_layout(layout_name) {
+		const route_key = frappe.breadcrumbs.current_page();
+		const crumb = frappe.breadcrumbs.all[route_key];
+		if (crumb && (crumb.layout_name || null) !== layout_name) {
+			crumb.layout_name = layout_name;
+			frappe.breadcrumbs.update();
+		}
 	}
 
 	parse_filters_from_settings() {
@@ -1085,9 +1106,9 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 						${frappe.utils.icon("restriction")}
 					</div>`;
 			} else if (df.fieldtype === "Select") {
-				html = `<span class="${filterable} indicator-pill ${frappe.utils.guess_colour(
+				html = `<span class="${filterable} es-badge ellipsis" data-theme="${frappe.utils.guess_colour(
 					_value
-				)} ellipsis"
+				)}"
 					data-filter="${fieldname},=,${value}">
 					<span class="ellipsis"> ${__(_value)} </span>
 				</span>`;
@@ -1455,7 +1476,7 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 		];
 		const title = docstatus_description[doc.docstatus || 0];
 		if (indicator) {
-			return `<span class="indicator-pill ${indicator[1]} filterable no-indicator-dot ellipsis"
+			return `<span class="es-badge filterable ellipsis" data-theme="${indicator[1]}"
 				data-filter='${indicator[2]}' title='${title}'>
 				<span class="ellipsis"> ${indicator[0]}</span>
 			</span>`;
@@ -2502,6 +2523,7 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 					this.disable_list_update = true;
 					bulk_operations.edit(this.get_checked_items(true), field_mappings, () => {
 						this.disable_list_update = false;
+						this.clear_checked_items();
 						this.refresh();
 					});
 				},

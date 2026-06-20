@@ -1,40 +1,137 @@
-{% include "templates/print_format/print_format_font.css" %}
+{
+		% include "templates/print_format/print_format_font.css" %
+	}
 
-{% macro render_margin_text(position, content) %}
-@{{ position.replace('_', '-') }} {
-	content: {{ content }}
+		{
+		% macro render_margin_text(position, content) %
+	}
+
+	@{{ position.replace('_', '-') }
 }
-{% endmacro %}
+
+	{
+	content: {
+			{
+			content
+		}
+	}
+}
+
+	{
+	% endmacro %
+}
 
 @page {
-	size: {{ print_settings.pdf_page_size or 'A4' }} portrait;
-	margin-top: {{ print_format.margin_top | int }}mm;
-	margin-bottom: {{ print_format.margin_bottom | int }}mm;
-	margin-left: {{ print_format.margin_left | int }}mm;
-	margin-right: {{ print_format.margin_right | int }}mm;
-	{% if not for_chrome %}
+	size: {
+			{
+			print_settings.pdf_page_size or 'A4'
+		}
+	}
+
+	portrait;
+
+	margin-top: {
+			{
+			print_format.margin_top | int
+		}
+	}
+
+	mm;
+
+	margin-bottom: {
+			{
+			print_format.margin_bottom | int
+		}
+	}
+
+	mm;
+
+	margin-left: {
+			{
+			print_format.margin_left | int
+		}
+	}
+
+	mm;
+
+	margin-right: {
+			{
+			print_format.margin_right | int
+		}
+	}
+
+	mm;
+
+		{
+		% if not for_chrome %
+	}
+
 	/* page number via CSS margin boxes (WeasyPrint / browser print only) */
-	{% set page_number_position = print_format.page_number.lower().replace(' ', '_') %}
-	{% if page_number_position in ['top_left', 'top_center', 'top_right', 'bottom_left', 'bottom_center', 'bottom_right'] %}
-	{{ render_margin_text(page_number_position, _('{0} of {1}').format('counter(page) "', '" counter(pages)')) }}
-	{% endif %}
-	{% endif %}
+		{
+		% set page_number_position=print_format.page_number.lower().replace(' ', '_') %
+	}
+
+		{
+		% if page_number_position in ['top_left',
+		'top_center',
+		'top_right',
+		'bottom_left',
+		'bottom_center',
+		'bottom_right'] %
+	}
+
+		{
+			{
+			render_margin_text(page_number_position, _('{0} of {1}').format('counter(page) "', '" counter(pages)'))
+		}
+	}
+
+		{
+		% endif %
+	}
+
+		{
+		% endif %
+	}
 }
 
-html, body {
-	font-size: {{ print_format.font_size }}px;
+html,
+body {
+	font-size: {
+			{
+			print_format.font_size
+		}
+	}
+
+	px;
 }
 
 body {
-	min-width: {{ body_width | int }}mm !important;
-	max-width: {{ body_width | int }}mm !important;
+	min-width: {
+			{
+			body_width | int
+		}
+	}
+
+	mm !important;
+
+	max-width: {
+			{
+			body_width | int
+		}
+	}
+
+	mm !important;
 }
 
 /* Fix bootstrap column rendering in PDF */
 @media print {
-	.col, *[class^="col-"] {
+
+	.col,
+	*[class^="col-"] {
 		max-width: none !important;
 	}
+
 	.label {
 		border: none;
 	}
@@ -44,18 +141,61 @@ body {
 	html {
 		background-color: var(--gray-200);
 	}
+
 	body {
 		background-color: white;
 		box-shadow: var(--shadow-md);
 		margin: 2rem auto;
 		min-height: 297mm;
 		height: min-content;
-		min-width: {{ body_width | int }}mm !important;
-		max-width: {{ body_width | int }}mm !important;
-		padding-top: {{ print_format.margin_top | int }}mm;
-		padding-right: {{ print_format.margin_right | int }}mm;
-		padding-left: {{ print_format.margin_left | int }}mm;
-		padding-bottom: {{ print_format.margin_bottom | int }}mm;
+
+		min-width: {
+				{
+				body_width | int
+			}
+		}
+
+		mm !important;
+
+		max-width: {
+				{
+				body_width | int
+			}
+		}
+
+		mm !important;
+
+		padding-top: {
+				{
+				print_format.margin_top | int
+			}
+		}
+
+		mm;
+
+		padding-right: {
+				{
+				print_format.margin_right | int
+			}
+		}
+
+		mm;
+
+		padding-left: {
+				{
+				print_format.margin_left | int
+			}
+		}
+
+		mm;
+
+		padding-bottom: {
+				{
+				print_format.margin_bottom | int
+			}
+		}
+
+		mm;
 	}
 
 	.child-table {
@@ -79,7 +219,7 @@ body {
 	page-break-after: avoid;
 }
 
-.field + .field {
+.field+.field {
 	margin-top: 0.5rem;
 }
 
@@ -94,8 +234,6 @@ body {
 	font-size: 0.75em;
 	font-weight: 600;
 	color: #6b7280;
-	text-transform: uppercase;
-	letter-spacing: 0.03em;
 	margin-bottom: 0.1rem;
 }
 
@@ -103,15 +241,16 @@ body {
 	color: #111827;
 }
 
-/* Left-right: label takes 40%, value takes 60% for better wrapping */
-.field.left-right {
+/* Left-right (section-level): label takes 40%, value takes 60% */
+.field.left-right,
+.field.field-inline {
 	display: flex;
 	align-items: baseline;
 	gap: 0.5rem;
 }
 
-.field.left-right .label {
-	width: 40%;
+.field.left-right .label,
+.field.field-inline .label {
 	flex-shrink: 0;
 	font-size: 0.8em;
 	font-weight: 600;
@@ -121,9 +260,51 @@ body {
 	padding-top: 0.05rem;
 }
 
+.field.left-right .label {
+	width: 40%;
+}
+
+.field.field-inline .label {
+	width: auto;
+}
+
+.field.field-inline .label::after {
+	content: ":";
+}
+
 .field.left-right .value {
 	width: 60%;
 	flex: 1;
+}
+
+.field.field-inline .value {
+	flex: 1;
+}
+
+/* Field-level alignment */
+.field.field-align-center {
+	text-align: center;
+}
+
+.field.field-align-center .value {
+	text-align: center;
+}
+
+.field.field-align-right {
+	text-align: right;
+}
+
+.field.field-align-right .value {
+	text-align: right;
+}
+
+/* In left-right orientation, alignment applies to the whole flex row */
+.field.left-right.field-align-right {
+	justify-content: flex-end;
+}
+
+.field.left-right.field-align-center {
+	justify-content: center;
 }
 
 /* Child table */
@@ -131,12 +312,10 @@ body {
 	margin-top: 0.5rem;
 }
 
-.child-table > .label {
+.child-table>.label {
 	font-size: 0.8em;
 	font-weight: 600;
 	color: #6b7280;
-	text-transform: uppercase;
-	letter-spacing: 0.03em;
 	margin-bottom: 0.4rem;
 }
 
@@ -147,28 +326,63 @@ body {
 }
 
 .child-table .table th {
-	background-color: #f3f4f6;
+	background-color: #f3f4f6 !important;
 	color: #374151;
 	font-weight: 600;
 	font-size: 0.85em;
-	text-transform: uppercase;
-	letter-spacing: 0.03em;
 	padding: 0.45rem 0.6rem;
-	border: 1px solid #e5e7eb;
+	border: 1px solid #e5e7eb !important;
 }
 
 .child-table .table td {
 	padding: 0.45rem 0.6rem;
-	border: 1px solid #e5e7eb;
+	border: 1px solid #e5e7eb !important;
 	vertical-align: top;
 }
 
-.child-table .table .odd {
-	background-color: #ffffff;
+/* lined (default): no row alternation — target td directly to beat Bootstrap @media print */
+.child-table--lined .table .odd td,
+.child-table--lined .table .even td {
+	background-color: #ffffff !important;
 }
 
-.child-table .table .even {
-	background-color: #f9fafb;
+/* striped: alternating rows */
+.child-table--striped .table .odd td {
+	background-color: #ffffff !important;
+}
+
+.child-table--striped .table .even td {
+	background-color: #f9fafb !important;
+}
+
+/* plain: no borders, bottom dividers only */
+.child-table--plain .table th,
+.child-table--plain .table td {
+	border: none !important;
+	border-bottom: 1px solid #e5e7eb !important;
+}
+
+.child-table--plain .table th {
+	background-color: transparent !important;
+	border-bottom: 2px solid #d1d5db !important;
+}
+
+.child-table--plain .table .odd td,
+.child-table--plain .table .even td {
+	background-color: #ffffff !important;
+}
+
+/* borderless variant */
+.child-table--borderless .table th,
+.child-table--borderless .table td {
+	border: none !important;
+	border-bottom: 1px solid #e5e7eb !important;
+}
+
+/* plain header variant */
+.child-table--plain-header .table th {
+	background-color: transparent !important;
+	border-bottom: 2px solid #d1d5db !important;
 }
 
 .child-table [data-fieldtype="Currency"],
@@ -188,6 +402,7 @@ body {
 		page-break-inside: auto;
 		break-inside: auto;
 	}
+
 	.child-table thead {
 		display: table-header-group;
 	}
@@ -222,6 +437,12 @@ body {
 	max-width: 50% !important;
 }
 
+/* Keep letterhead images from overflowing the page when no explicit width is set */
+header img {
+	max-width: 100%;
+	height: auto;
+}
+
 .document-header {
 	border-bottom-width: 1px;
 	border-bottom-style: solid;
@@ -232,7 +453,8 @@ body {
 	width: 1.5rem;
 }
 
-.field[data-fieldtype="Long Text"] .value, .field[data-fieldtype="Text"] .value {
+.field[data-fieldtype="Long Text"] .value,
+.field[data-fieldtype="Text"] .value {
 	white-space: pre-line;
 }
 
@@ -245,9 +467,30 @@ body {
 	width: 1rem;
 	height: 1rem;
 	margin-right: 0.3rem;
-	border-radius: var(--border-radius);
+	border-radius: var(--radius);
 }
 
 .field[data-fieldtype="Check"] #icon-tick {
 	width: 1rem;
+}
+
+/* ── Label case: uppercase (opt-in per section) ──────────── */
+.label-uppercase .section-label {
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.label-uppercase .field .label {
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+}
+
+.label-uppercase .child-table>.label {
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+}
+
+.label-uppercase .child-table .table th {
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
 }

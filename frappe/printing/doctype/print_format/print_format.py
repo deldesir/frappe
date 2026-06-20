@@ -58,13 +58,21 @@ class PrintFormat(Document):
 		templates = frappe.get_all(
 			"Print Format Field Template",
 			fields=["template", "field", "name"],
-			filters={"document_type": self.doc_type},
+			or_filters=[
+				["document_type", "=", self.doc_type],
+				["document_type", "is", "not set"],
+			],
+			order_by="document_type desc",
 		)
 		self.set_onload("print_templates", templates)
 
 	def before_save(self):
 		if self.print_format_for == "Report":
 			self.custom_format = 1
+
+		# New non-custom formats default to builder beta + Chrome
+		if self.is_new() and not self.custom_format:
+			self.print_format_builder_beta = 1
 
 		if self.print_format_builder_beta and not self.custom_format:
 			self.pdf_generator = "chrome"

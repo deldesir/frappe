@@ -81,10 +81,6 @@ frappe.views.Page = class Page {
 				frappe.show_not_found(name);
 				return;
 			}
-			if (this.pagedoc.page_name != "setup-wizard") {
-				this.pagedoc.module &&
-					frappe.app.sidebar.show_sidebar_for_module(this.pagedoc.module);
-			}
 
 			this.wrapper = frappe.container.add_page(this.name);
 			this.wrapper.page_name = this.pagedoc.name;
@@ -133,8 +129,7 @@ frappe.show_not_permitted = function (page_name) {
 	frappe.show_message_page({
 		page_name: page_name,
 		message: __("Sorry! You are not permitted to view this page."),
-		img: ((frappe.router && frappe.router._subpath_prefix) || "") + "/assets/frappe/images/ui/bubble-tea-sorry.svg",
-		// icon: "octicon octicon-circle-slash"
+img: ((frappe.router && frappe.router._subpath_prefix) || "") + "/assets/frappe/images/ui/bubble-tea-sorry.svg",
 	});
 };
 
