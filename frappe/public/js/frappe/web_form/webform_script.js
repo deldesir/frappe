@@ -15,7 +15,10 @@ frappe.ready(function () {
 			title: __("Not Permitted"),
 			primary_action_label: __("Login"),
 			primary_action: () => {
-				window.location.replace(((frappe.router && frappe.router._subpath_prefix) || "") + "/login?redirect-to=" + window.location.pathname);
+				window.location.replace(
+					((frappe.router && frappe.router._subpath_prefix) || "") +
+						"/login?redirect-to=" + window.location.pathname + window.location.search
+				);
 			},
 		});
 		login_required.show();

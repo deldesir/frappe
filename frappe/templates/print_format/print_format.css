@@ -1,137 +1,40 @@
-{
-		% include "templates/print_format/print_format_font.css" %
-	}
+{% include "templates/print_format/print_format_font.css" %}
 
-		{
-		% macro render_margin_text(position, content) %
-	}
-
-	@{{ position.replace('_', '-') }
+{% macro render_margin_text(position, content) %}
+@{{ position.replace('_', '-') }} {
+	content: {{ content }}
 }
-
-	{
-	content: {
-			{
-			content
-		}
-	}
-}
-
-	{
-	% endmacro %
-}
+{% endmacro %}
 
 @page {
-	size: {
-			{
-			print_settings.pdf_page_size or 'A4'
-		}
-	}
-
-	portrait;
-
-	margin-top: {
-			{
-			print_format.margin_top | int
-		}
-	}
-
-	mm;
-
-	margin-bottom: {
-			{
-			print_format.margin_bottom | int
-		}
-	}
-
-	mm;
-
-	margin-left: {
-			{
-			print_format.margin_left | int
-		}
-	}
-
-	mm;
-
-	margin-right: {
-			{
-			print_format.margin_right | int
-		}
-	}
-
-	mm;
-
-		{
-		% if not for_chrome %
-	}
-
+	size: {{ print_settings.pdf_page_size or 'A4' }} portrait;
+	margin-top: {{ print_format.margin_top | int }}mm;
+	margin-bottom: {{ print_format.margin_bottom | int }}mm;
+	margin-left: {{ print_format.margin_left | int }}mm;
+	margin-right: {{ print_format.margin_right | int }}mm;
+	{% if not for_chrome %}
 	/* page number via CSS margin boxes (WeasyPrint / browser print only) */
-		{
-		% set page_number_position=print_format.page_number.lower().replace(' ', '_') %
-	}
-
-		{
-		% if page_number_position in ['top_left',
-		'top_center',
-		'top_right',
-		'bottom_left',
-		'bottom_center',
-		'bottom_right'] %
-	}
-
-		{
-			{
-			render_margin_text(page_number_position, _('{0} of {1}').format('counter(page) "', '" counter(pages)'))
-		}
-	}
-
-		{
-		% endif %
-	}
-
-		{
-		% endif %
-	}
+	{% set page_number_position = print_format.page_number.lower().replace(' ', '_') %}
+	{% if page_number_position in ['top_left', 'top_center', 'top_right', 'bottom_left', 'bottom_center', 'bottom_right'] %}
+	{{ render_margin_text(page_number_position, _('{0} of {1}').format('counter(page) "', '" counter(pages)')) }}
+	{% endif %}
+	{% endif %}
 }
 
-html,
-body {
-	font-size: {
-			{
-			print_format.font_size
-		}
-	}
-
-	px;
+html, body {
+	font-size: {{ print_format.font_size }}px;
 }
 
 body {
-	min-width: {
-			{
-			body_width | int
-		}
-	}
-
-	mm !important;
-
-	max-width: {
-			{
-			body_width | int
-		}
-	}
-
-	mm !important;
+	min-width: {{ body_width | int }}mm !important;
+	max-width: {{ body_width | int }}mm !important;
 }
 
 /* Fix bootstrap column rendering in PDF */
 @media print {
-
-	.col,
-	*[class^="col-"] {
+	.col, *[class^="col-"] {
 		max-width: none !important;
 	}
-
 	.label {
 		border: none;
 	}
@@ -141,61 +44,18 @@ body {
 	html {
 		background-color: var(--gray-200);
 	}
-
 	body {
 		background-color: white;
 		box-shadow: var(--shadow-md);
 		margin: 2rem auto;
 		min-height: 297mm;
 		height: min-content;
-
-		min-width: {
-				{
-				body_width | int
-			}
-		}
-
-		mm !important;
-
-		max-width: {
-				{
-				body_width | int
-			}
-		}
-
-		mm !important;
-
-		padding-top: {
-				{
-				print_format.margin_top | int
-			}
-		}
-
-		mm;
-
-		padding-right: {
-				{
-				print_format.margin_right | int
-			}
-		}
-
-		mm;
-
-		padding-left: {
-				{
-				print_format.margin_left | int
-			}
-		}
-
-		mm;
-
-		padding-bottom: {
-				{
-				print_format.margin_bottom | int
-			}
-		}
-
-		mm;
+		min-width: {{ body_width | int }}mm !important;
+		max-width: {{ body_width | int }}mm !important;
+		padding-top: {{ print_format.margin_top | int }}mm;
+		padding-right: {{ print_format.margin_right | int }}mm;
+		padding-left: {{ print_format.margin_left | int }}mm;
+		padding-bottom: {{ print_format.margin_bottom | int }}mm;
 	}
 
 	.child-table {
@@ -219,7 +79,7 @@ body {
 	page-break-after: avoid;
 }
 
-.field+.field {
+.field + .field {
 	margin-top: 0.5rem;
 }
 
@@ -241,7 +101,7 @@ body {
 	color: #111827;
 }
 
-/* Left-right (section-level): label takes 40%, value takes 60% */
+/* Left-right (section-level): label shrinks to content width, value takes the rest */
 .field.left-right,
 .field.field-inline {
 	display: flex;
@@ -258,27 +118,17 @@ body {
 	text-transform: none;
 	letter-spacing: 0;
 	padding-top: 0.05rem;
-}
-
-.field.left-right .label {
-	width: 40%;
-}
-
-.field.field-inline .label {
-	width: auto;
+	white-space: nowrap;
 }
 
 .field.field-inline .label::after {
 	content: ":";
 }
 
-.field.left-right .value {
-	width: 60%;
-	flex: 1;
-}
-
+.field.left-right .value,
 .field.field-inline .value {
 	flex: 1;
+	min-width: 0;
 }
 
 /* Field-level alignment */
@@ -298,21 +148,30 @@ body {
 	text-align: right;
 }
 
-/* In left-right orientation, alignment applies to the whole flex row */
-.field.left-right.field-align-right {
-	justify-content: flex-end;
+/* Spacing/alignment variants for left-right orientation.
+   Right/center align: both label and value need flex:none so the pair moves as a unit.
+   Space-between/evenly: only value needs flex:none (label already has flex-shrink:0). */
+.field.left-right.field-align-right .label,
+.field.left-right.field-align-right .value,
+.field.left-right.field-align-center .label,
+.field.left-right.field-align-center .value,
+.field.left-right.field-justify-space-between .value,
+.field.left-right.field-justify-space-evenly .value {
+	flex: none;
 }
 
-.field.left-right.field-align-center {
-	justify-content: center;
-}
+.field.left-right.field-align-right { justify-content: flex-end; }
+.field.left-right.field-align-center { justify-content: center; }
+.field.left-right.field-justify-space-between { justify-content: space-between; }
+.field.left-right.field-justify-space-between .value { text-align: right; }
+.field.left-right.field-justify-space-evenly { justify-content: space-evenly; }
 
 /* Child table */
 .child-table {
 	margin-top: 0.5rem;
 }
 
-.child-table>.label {
+.child-table > .label {
 	font-size: 0.8em;
 	font-weight: 600;
 	color: #6b7280;
@@ -402,7 +261,6 @@ body {
 		page-break-inside: auto;
 		break-inside: auto;
 	}
-
 	.child-table thead {
 		display: table-header-group;
 	}
@@ -453,8 +311,7 @@ header img {
 	width: 1.5rem;
 }
 
-.field[data-fieldtype="Long Text"] .value,
-.field[data-fieldtype="Text"] .value {
+.field[data-fieldtype="Long Text"] .value, .field[data-fieldtype="Text"] .value {
 	white-space: pre-line;
 }
 
@@ -485,7 +342,7 @@ header img {
 	letter-spacing: 0.03em;
 }
 
-.label-uppercase .child-table>.label {
+.label-uppercase .child-table > .label {
 	text-transform: uppercase;
 	letter-spacing: 0.03em;
 }

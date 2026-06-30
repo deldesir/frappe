@@ -383,7 +383,13 @@ frappe.router = {
 					const route_options = frappe.route_options || {};
 					const query_params = Object.entries(route_options)
 						.map(
-							([key, value]) => `${key}=` + encodeURIComponent(JSON.stringify(value))
+							([key, value]) =>
+								`${key}=` +
+								encodeURIComponent(
+									value !== null && typeof value === "object"
+										? JSON.stringify(value)
+										: String(value)
+								)
 						)
 						.join("&");
 					this.push_state(sub_path, query_params ? `?${query_params}` : "");
@@ -405,10 +411,17 @@ frappe.router = {
 			// called as frappe.set_route(['a', 'b', 'c']);
 			route = route[0];
 		}
-
 		if (route.length === 1 && route[0] && route[0].includes("/")) {
-			// called as frappe.set_route('a/b/c')
-			route = $.map(this.strip_prefix(route[0]).split("/"), this.decode_component);
+			// called as frappe.set_route('a/b/c') or frappe.set_route('/desk/a/b?x=1')
+			const qIdx = route[0].indexOf("?");
+			let path = qIdx >= 0 ? route[0].slice(0, qIdx) : route[0];
+			let query_string = qIdx >= 0 ? route[0].slice(qIdx + 1) : null;
+			if (query_string) {
+				frappe.route_options = frappe.route_options || {};
+				new URLSearchParams(query_string).forEach((v, k) => (frappe.route_options[k] = v));
+			}
+			// IIAB: strip the subpath prefix (e.g. /erp) before decoding segments
+			route = $.map(this.strip_prefix(path).split("/"), this.decode_component);
 		}
 
 		if (route && route[0] == "") {

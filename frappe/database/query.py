@@ -1699,7 +1699,7 @@ class Engine:
 			tables.append(join.item.get_sql())
 		return list(set(tables))
 
-	def get_permission_query_conditions(self, doctype: str | None = None) -> list["RawCriterion"]:
+	def get_permission_query_conditions(self, doctype: str | None = None) -> list["Criterion"]:
 		"""Add permission query conditions from hooks and server scripts"""
 		from frappe.core.doctype.server_script.server_script_utils import get_server_script_map
 
@@ -1710,7 +1710,9 @@ class Engine:
 
 		for method in condition_methods:
 			if c := frappe.call(frappe.get_attr(method), self.user, doctype=doctype):
-				conditions.append(RawCriterion(f"({c})"))
+				# Hooks may return a raw SQL string or a pypika term. A term already
+				# participates in `Criterion.all`/`get_sql`, so only strings need wrapping.
+				conditions.append(RawCriterion(f"({c})") if isinstance(c, str) else c)
 
 		active_child_tables = []
 		current_tables = self.get_queried_tables()
@@ -1782,6 +1784,7 @@ class Engine:
 			if not user_permissions:
 				return match_filters
 
+			permission_filters = {}
 			for df in self.get_doctype_link_fields(self.doctype):
 				if df.get("ignore_user_permissions"):
 					continue
@@ -1805,7 +1808,10 @@ class Engine:
 							docs.append(doc)
 
 					if docs:
-						match_filters.append({options: docs})
+						permission_filters[options] = docs
+
+			if permission_filters:
+				match_filters.append(permission_filters)
 
 			return match_filters
 
