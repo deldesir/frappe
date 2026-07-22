@@ -283,10 +283,13 @@ class TestCustomFunctionsPostgres(IntegrationTestCase):
 		)
 
 	def test_match(self):
+		# 'english' regconfig is pinned so a GIN index over to_tsvector('english', col) can back it
 		query = Match("Notes")
-		self.assertEqual("TO_TSVECTOR('Notes')", query.get_sql())
+		self.assertEqual("TO_TSVECTOR('english','Notes')", query.get_sql())
 		query = Match("Notes").Against("text")
-		self.assertEqual("TO_TSVECTOR('Notes') @@ PLAINTO_TSQUERY('text')", query.get_sql())
+		self.assertEqual(
+			"TO_TSVECTOR('english','Notes') @@ PLAINTO_TSQUERY('english', 'text')", query.get_sql()
+		)
 
 	def test_constant_column(self):
 		query = frappe.qb.from_("DocType").select("name", ConstantColumn("John").as_("User"))
@@ -785,3 +788,30 @@ class TestOperatorIn(IntegrationTestCase):
 		self.assertIn(None, results)
 		self.assertIn("", results)
 		self.assertIn("user1", results)
+
+
+class TestRecursiveCTE(IntegrationTestCase):
+	def test_recursive_keyword_is_emitted(self):
+		# recursive=True renders WITH RECURSIVE so a CTE may reference itself in its recursive term.
+		from pypika import AliasedQuery, Table
+
+		nodes = Table("nodes")
+		tree = AliasedQuery("tree")
+		seed = frappe.qb.from_(nodes).select(nodes.name, nodes.parent).where(nodes.parent.isnull())
+		recurse = (
+			frappe.qb.from_(nodes).join(tree).on(nodes.parent == tree.name).select(nodes.name, nodes.parent)
+		)
+		query = frappe.qb.with_(seed + recurse, "tree", recursive=True).from_(tree).select(tree.name)
+		self.assertIn("WITH RECURSIVE tree AS", query.get_sql())
+
+	def test_non_recursive_with_matches_pypika(self):
+		# recursive defaults to False and must keep pypika's exact multi-CTE formatting (the join
+		# is ") ," between clauses) -- the override changes nothing on the non-recursive path.
+		from pypika import AliasedQuery, Table
+
+		a = frappe.qb.from_(Table("t1")).select("x")
+		b = frappe.qb.from_(Table("t2")).select("y")
+		sql = frappe.qb.with_(a, "cte_a").with_(b, "cte_b").from_(AliasedQuery("cte_a")).select("x").get_sql()
+		self.assertTrue(sql.startswith("WITH cte_a AS "))
+		self.assertNotIn("WITH RECURSIVE", sql)
+		self.assertIn(") ,cte_b AS (", sql)
