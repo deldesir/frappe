@@ -5,6 +5,7 @@
 // will join them here.
 export { default as ListViewShell } from "./ListViewShell.vue";
 export { useListView } from "./useListView";
-export type { UseListView } from "./useListView";
+export type { UseListView, UseListViewOptions } from "./useListView";
 export { useListData } from "./useListData";
 export type { UseListData } from "./useListData";
+export type { ListViewShellProps, ListViewShellSlots } from "./types";

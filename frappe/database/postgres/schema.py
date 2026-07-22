@@ -12,8 +12,10 @@ from frappe.utils.defaults import get_not_null_defaults
 # company, posting_date, lft/rgt, ...) and `CREATE INDEX IF NOT EXISTS` silently skips all but
 # the first -- so most tables never get that index. Qualify the name with the table so it is
 # schema-unique, hashing if it would exceed postgres's 63-byte identifier cap.
-def get_qualified_index_name(table_name: str, fields: list[str]) -> str:
+def get_qualified_index_name(table_name: str, fields: list[str], suffix: str | None = None) -> str:
 	base = f"{table_name}_" + "_".join(fields)
+	if suffix:
+		base += f"_{suffix}"
 	name = f"{base}_index"
 	if len(name.encode()) > 63:
 		digest = hashlib.md5(base.encode()).hexdigest()[:10]
@@ -118,7 +120,13 @@ class PostgresTable(DBTable):
 				# Duration/Rating are nullable (not in NOT_NULL_TYPES), so keep blanks NULL.
 				using_clause = f"USING NULLIF(`{col.fieldname}`::text, '')::numeric"
 			elif col.fieldtype == "Int":
-				using_clause = f"USING COALESCE(NULLIF(`{col.fieldname}`::text, ''), '0')::numeric::int"
+				# cast to the actual target type: Int with length > 11 is a bigint column
+				# (Long Int), so a plain ::int would overflow its legitimate values; a standard
+				# Int stays int and still errors on out-of-range values (use Long Int for those).
+				int_type = get_definition(col.fieldtype, length=col.length)
+				using_clause = (
+					f"USING COALESCE(NULLIF(`{col.fieldname}`::text, ''), '0')::numeric::{int_type}"
+				)
 			elif col.fieldtype == "JSON":
 				using_clause = f"USING NULLIF(`{col.fieldname}`::text, '')::json"
 
@@ -303,6 +311,13 @@ class PostgresTable(DBTable):
 					_(
 						"{0} field cannot be set as unique in {1}, as there are non-unique existing values"
 					).format(fieldname, self.table_name)
+				)
+			elif frappe.db.is_data_truncated(e):
+				frappe.throw(
+					_(
+						"Cannot change field type in {0}: some existing values cannot be converted to the new type"
+					).format(self.doctype),
+					title=_("Incompatible Values"),
 				)
 			else:
 				raise e

@@ -145,13 +145,6 @@ frappe.breadcrumbs = {
 		) {
 			return;
 		}
-		if (frappe.app.sidebar.sidebar_title) {
-			let icon = frappe.utils.get_desktop_icon_by_label(frappe.app.sidebar.sidebar_title);
-			let url = frappe.utils.get_route_for_icon(icon);
-			if (url) {
-				this.append_breadcrumb_element(url, __(icon.label), "worksapce-breadcrumb");
-			}
-		}
 
 		let worksapce_crumb = this.$breadcrumbs.find("li a.worksapce-breadcrumb");
 
@@ -225,8 +218,12 @@ frappe.breadcrumbs = {
 			} else {
 				route = doctype_route;
 			}
-const reset = breadcrumbs.layout_name ? "?reset_filters=1" : "";
-				this.append_breadcrumb_element(`${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${route}${reset}`, __(doctype), "title-text");
+			const reset = breadcrumbs.layout_name ? "?reset_filters=1" : "";
+			this.append_breadcrumb_element(
+				`${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${route}${reset}`,
+				__(doctype),
+				"title-text"
+			);
 		}
 
 		let list_crumb = this.$breadcrumbs.find("li a.title-text");
@@ -263,7 +260,7 @@ const reset = breadcrumbs.layout_name ? "?reset_filters=1" : "";
 			);
 			filter_params._layout = breadcrumbs.layout_name;
 			const query = new URLSearchParams(filter_params).toString();
-			const layout_route = `/desk/${doctype_slug}${query ? "?" + query : ""}`;
+			const layout_route = `${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${doctype_slug}${query ? "?" + query : ""}`;
 			this.append_breadcrumb_element(layout_route, __(display_title));
 		}
 
@@ -283,7 +280,11 @@ const reset = breadcrumbs.layout_name ? "?reset_filters=1" : "";
 		const doctype = breadcrumbs.doctype;
 		const docname = frappe.get_route()[1];
 		let dashboard_route = `${(frappe.router && frappe.router._subpath_prefix) || ""}/desk/${frappe.router.slug(doctype)}/${docname}`;
-		$(`<li><a href="${dashboard_route}">${__(docname)}</a></li>`).appendTo(this.$breadcrumbs);
+		$(
+			`<li><a href="${frappe.utils.escape_html(dashboard_route)}">${frappe.utils.escape_html(
+				__(docname)
+			)}</a></li>`
+		).appendTo(this.$breadcrumbs);
 	},
 
 	setup_modules() {
@@ -304,7 +305,6 @@ const reset = breadcrumbs.layout_name ? "?reset_filters=1" : "";
 
 	clear() {
 		this.$breadcrumbs = $(".navbar-breadcrumbs").empty();
-		this.append_breadcrumb_element(((frappe.router && frappe.router._subpath_prefix) || "") + "/desk", frappe.utils.icon("home"));
 	},
 
 	toggle(show) {

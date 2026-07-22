@@ -140,15 +140,13 @@ import { Button, Combobox, Popover, TextInput } from "frappe-ui";
 import Draggable from "vuedraggable";
 import { useDoctypeMeta } from "../../composables/useDoctypeMeta";
 import { getColumnOptions } from "./getColumnOptions";
-import type { Column, ColumnOption } from "./types";
+import type { Column, ColumnOption, ColumnSettingsProps } from "./types";
 
-const props = withDefaults(
-	defineProps<{ doctype: string; hideLabel?: boolean; canReset?: boolean }>(),
-	{
-		hideLabel: false,
-		canReset: false,
-	}
-);
+const props = withDefaults(defineProps<ColumnSettingsProps>(), {
+	hideLabel: false,
+	canReset: false,
+	synthetic: () => [],
+});
 
 // Reset is the host's job (ADR-0006): the controlled popover holds no defaults, so
 // it only signals intent and the host restores them.
@@ -179,8 +177,11 @@ const popoverRef = ref<{ open: () => void } | null>(null);
 
 const { meta } = useDoctypeMeta(props.doctype);
 
-// Field Options derived client-side from Meta — no CRM endpoint.
-const allOptions = computed<ColumnOption[]>(() => getColumnOptions(meta.value?.fields ?? []));
+// Field Options derived client-side from Meta, unioned with the host's synthetic
+// columns (ADR-0033) — no CRM endpoint.
+const allOptions = computed<ColumnOption[]>(() =>
+	getColumnOptions(meta.value?.fields ?? [], props.synthetic)
+);
 
 // The "add" picker offers every column not already shown.
 const addableOptions = computed<ColumnOption[]>(() => {

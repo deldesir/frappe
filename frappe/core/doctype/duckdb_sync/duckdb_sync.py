@@ -59,6 +59,9 @@ class DuckDBSync(Document):
 				ddbt.sync(duck_conn)
 		duck_conn.close()
 
+	def on_cancel(self):
+		self.flags.ignore_links = True
+
 	def on_trash(self):
 		if self.docstatus.is_cancelled():
 			from frappe.database import delete_duckdb_file
@@ -75,9 +78,11 @@ def is_data_sync_pending(docname: str):
 @frappe.whitelist()
 def start_data_sync(docname: str):
 	frappe.has_permission("DuckDB Sync", ptype="write", throw=True)
+	timeout = frappe.db.get_single_value("System Settings", "sync_timeout") or 25 * 60
 	frappe.enqueue(
 		method="frappe.core.doctype.duckdb_sync.duckdb_sync.sync_data_to_duckdb",
 		queue="long",
+		timeout=timeout,
 		enqueue_after_commit=True,
 		docname=docname,
 	)
@@ -116,11 +121,12 @@ def sync_data_to_duckdb(docname: str):
 		name = unsynced[0]["name"]
 		duck_tb = DuckDBTable(dt)
 
+		timeout = frappe.db.get_single_value("System Settings", "sync_timeout") or 25 * 60
 		# connect to mariadb
 		conn = frappe.get_doc("DuckDB Sync", docname).get_duckdb_conn()
 		try:
 			conn.sql(
-				f"attach 'user={frappe.conf.db_name} password={frappe.conf.db_password} host={frappe.conf.db_host} database={frappe.conf.db_name}' as mariadb_db (TYPE mysql);"
+				f"attach 'user={frappe.conf.db_name} password={frappe.conf.db_password} host={frappe.conf.db_host} database={frappe.conf.db_name} port={frappe.conf.db_port}' as mariadb_db (TYPE mysql);"
 			)
 			columns = frappe.get_meta(dt).get_valid_columns()
 			# quotted fields
@@ -145,6 +151,7 @@ def sync_data_to_duckdb(docname: str):
 			frappe.enqueue(
 				method="frappe.core.doctype.duckdb_sync.duckdb_sync.sync_data_to_duckdb",
 				queue="long",
+				timeout=timeout,
 				is_async=True,
 				enqueue_after_commit=True,
 				docname=docname,
