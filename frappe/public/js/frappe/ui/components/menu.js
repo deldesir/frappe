@@ -171,6 +171,19 @@ function build_item(item, { reserve_icon_space, component, taken }) {
 
 	if (item.icon) {
 		el.insertAdjacentHTML("beforeend", icon_html(item.icon, "", component));
+	} else if (item.icon_url) {
+		// app entries carry a logo URL rather than a lucide icon name
+		el.insertAdjacentHTML(
+			"beforeend",
+			`<img class="es-menu__icon-img" src="${frappe.utils.escape_html(item.icon_url)}" alt="" aria-hidden="true"
+				style="width: calc(var(--spacing) * 4); height: calc(var(--spacing) * 4); flex-shrink: 0; object-fit: contain;">`
+		);
+	} else if (item.icon_html) {
+		// pre-rendered markup (e.g. the alphabet fallback for logo-less apps); TRUSTED source only
+		const wrap = document.createElement("span");
+		wrap.className = "es-menu__icon-space";
+		wrap.innerHTML = item.icon_html;
+		el.appendChild(wrap);
 	} else if (reserve_icon_space) {
 		const space = document.createElement("span");
 		space.className = "es-menu__icon-space";
