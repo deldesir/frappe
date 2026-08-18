@@ -102,15 +102,27 @@ def build(
 		run_after_build_hook(apps)
 
 
-def run_after_build_hook(apps):
+def run_after_build_hook(built_apps: list[str]):
+	"""Run build hooks after assets are built.
+
+	- `after_build`: self-referential - runs only for apps that were just built, called with no arguments.
+	- `after_app_build`: cross-app - runs for every app on the bench, called with the list of built apps,
+	  so an app can react to another app's build (e.g. compile frontends it owns for that app).
+	"""
 	from importlib import import_module
 
-	for app in apps:
+	def _get_method(fn):
+		modulename = ".".join(fn.split(".")[:-1])
+		methodname = fn.split(".")[-1]
+		return getattr(import_module(modulename), methodname)
+
+	for app in built_apps:
 		for fn in frappe.get_hooks("after_build", app_name=app):
-			modulename = ".".join(fn.split(".")[:-1])
-			methodname = fn.split(".")[-1]
-			method = getattr(import_module(modulename), methodname)
-			method()
+			_get_method(fn)()
+
+	for app in frappe.get_all_apps():
+		for fn in frappe.get_hooks("after_app_build", app_name=app):
+			_get_method(fn)(built_apps)
 
 
 @click.command("watch")
@@ -737,6 +749,12 @@ def transform_database(context: CliCtxObj, table, engine, row_format, failfast):
 
 @click.command("serve")
 @click.option("--port", default=8000)
+@click.option(
+	"--host",
+	"bind_addr",
+	default=None,
+	help="Address to bind the development server to. Defaults to 127.0.0.1, use 0.0.0.0 to expose it on all interfaces.",
+)
 @click.option("--profile", is_flag=True, default=False)
 @click.option(
 	"--proxy",
@@ -751,6 +769,7 @@ def transform_database(context: CliCtxObj, table, engine, row_format, failfast):
 def serve(
 	context: CliCtxObj,
 	port=None,
+	bind_addr=None,
 	profile=False,
 	proxy=False,
 	no_reload=False,
@@ -773,6 +792,7 @@ def serve(
 			no_reload = True
 		frappe.app.serve(
 			port=port,
+			bind_addr=bind_addr,
 			profile=profile,
 			proxy=proxy,
 			no_reload=no_reload,

@@ -2,6 +2,7 @@
 # MIT License. See LICENSE
 import base64
 import binascii
+import hmac
 from urllib.parse import quote, unquote, urlencode, urlparse
 
 from werkzeug.wrappers import Response
@@ -643,6 +644,7 @@ def validate_auth():
 	Authenticate and sets user for the request.
 	"""
 	authorization_header = frappe.get_request_header("Authorization", "").split(" ")
+	user_before_auth = frappe.session.user
 
 	if len(authorization_header) == 2:
 		validate_oauth(authorization_header)
@@ -654,6 +656,13 @@ def validate_auth():
 	# should terminate here.
 	if len(authorization_header) == 2 and frappe.session.user in ("", "Guest"):
 		raise frappe.AuthenticationError
+
+	# `restrict_ip` is enforced for interactive logins in `LoginManager.post_login` and for
+	# cookie-based requests in `Session.resume`. A request authenticated here takes neither
+	# path, so the allowlist has to be enforced explicitly - without this, API keys, tokens
+	# and bearer tokens bypass the user's IP restrictions entirely.
+	if frappe.session.user != user_before_auth and frappe.session.user not in ("", "Guest"):
+		validate_ip_address(frappe.session.user)
 
 
 def validate_oauth(authorization_header):
@@ -748,7 +757,7 @@ def validate_api_key_secret(api_key, api_secret, frappe_authorization_source=Non
 		raise frappe.AuthenticationError
 	form_dict = frappe.local.form_dict
 	doc_secret = get_decrypted_password(doctype, docname, fieldname="api_secret", raise_exception=False)
-	if doc_secret and api_secret == doc_secret:
+	if doc_secret and hmac.compare_digest(api_secret.encode(), doc_secret.encode()):
 		if doctype == "User":
 			user = frappe.db.get_value(doctype="User", filters={"api_key": api_key}, fieldname=["name"])
 		else:

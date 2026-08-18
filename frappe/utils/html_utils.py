@@ -148,7 +148,7 @@ def sanitize_html(html, linkify=False, always_sanitize=False, disallowed_tags=No
 	Sanitize HTML tags, attributes and style to prevent XSS attacks
 	Based on nh3 clean, bleach whitelist and html5lib's Sanitizer defaults
 
-	Does not sanitize JSON unless explicitly specified, as it could lead to future problems
+	Content without any HTML tags is returned unchanged; everything else is sanitized.
 	"""
 	from bs4 import BeautifulSoup
 
@@ -156,9 +156,6 @@ def sanitize_html(html, linkify=False, always_sanitize=False, disallowed_tags=No
 		return html
 
 	if not always_sanitize:
-		if is_json(html):
-			return html
-
 		if not bool(BeautifulSoup(html, "html.parser").find()):
 			return html
 
@@ -189,6 +186,23 @@ def sanitize_html(html, linkify=False, always_sanitize=False, disallowed_tags=No
 	)
 
 	return escaped_html
+
+
+def sanitize_svg(svg: str) -> str:
+	"""Sanitize standalone SVG markup for safe inline rendering (e.g. custom icons).
+
+	Stricter than sanitize_html: only SVG elements and attributes survive, so
+	scripts, event handlers, foreignObject and plain HTML are all stripped.
+	"""
+	if not isinstance(svg, str):
+		return svg
+
+	return nh3.clean(
+		svg,
+		tags=svg_elements,
+		attributes={"*": svg_attributes},
+		strip_comments=True,
+	)
 
 
 def is_json(text):
