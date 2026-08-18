@@ -33,6 +33,8 @@ class NotificationLog(Document):
 		from_user: DF.Link | None
 		link: DF.SmallText | None
 		read: DF.Check
+		source_doctype: DF.Link | None
+		source_name: DF.DynamicLink | None
 		subject: DF.Text | None
 		title: DF.SmallText | None
 		type: DF.Link | None
@@ -109,6 +111,12 @@ def get_permission_query_conditions(for_user):
 		return
 
 	return f"""(`tabNotification Log`.for_user = {frappe.db.escape(for_user)})"""
+
+
+def has_permission(doc, ptype="read", user=None):
+	user = user or frappe.session.user
+
+	return user == "Administrator" or doc.for_user == user
 
 
 def get_title(doctype, docname, title_field=None):

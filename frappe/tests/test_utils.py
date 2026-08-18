@@ -78,6 +78,7 @@ from frappe.utils.data import (
 	map_trackers,
 	now_datetime,
 	nowtime,
+	orjson_dumps,
 	pretty_date,
 	rounded,
 	sha256_hash,
@@ -239,6 +240,47 @@ class TestFilters(IntegrationTestCase):
 			"last_password_reset_date": None,
 		}
 		self.assertFalse(evaluate_filters(doc, [("last_password_reset_date", "Timespan", "today")]))
+
+	def test_between_operator(self):
+		"""Test 'between' operator for inclusive range checks."""
+		# Numbers
+		self.assertTrue(compare(5, "between", [1, 10]))
+		self.assertTrue(compare(1, "between", [1, 10]))
+		self.assertTrue(compare(10, "between", [1, 10]))
+		self.assertFalse(compare(0, "between", [1, 10]))
+		self.assertFalse(compare(11, "between", [1, 10]))
+		self.assertFalse(compare(None, "between", [1, 10]))
+
+		# Numbers with fieldtype casting
+		self.assertTrue(compare("5", "between", ["1", "10"], "Int"))
+		self.assertFalse(compare("0", "between", ["1", "10"], "Int"))
+
+		# Dates
+		self.assertTrue(compare("2024-06-15", "between", ["2024-01-01", "2024-12-31"], "Date"))
+		self.assertTrue(compare("2024-01-01", "between", ["2024-01-01", "2024-12-31"], "Date"))
+		self.assertTrue(compare("2024-12-31", "between", ["2024-01-01", "2024-12-31"], "Date"))
+		self.assertFalse(compare("2023-12-31", "between", ["2024-01-01", "2024-12-31"], "Date"))
+		self.assertFalse(compare(None, "between", ["2024-01-01", "2024-12-31"], "Date"))
+
+		# Datetime: date-only upper bound includes the full final day (matches DB between)
+		self.assertTrue(compare("2024-12-31 15:30:00", "between", ["2024-01-01", "2024-12-31"], "Datetime"))
+		self.assertTrue(compare("2024-12-31 23:59:59", "between", ["2024-01-01", "2024-12-31"], "Datetime"))
+		self.assertFalse(compare("2025-01-01 00:00:00", "between", ["2024-01-01", "2024-12-31"], "Datetime"))
+		# Explicit datetime upper bound is not expanded to end-of-day
+		self.assertFalse(
+			compare(
+				"2024-12-31 15:30:00",
+				"between",
+				["2024-01-01 00:00:00", "2024-12-31 12:00:00"],
+				"Datetime",
+			)
+		)
+
+		# evaluate_filters: API lowercase and UI capitalized form
+		doc = {"doctype": "User", "birth_date": "2024-06-15"}
+		self.assertTrue(evaluate_filters(doc, [("birth_date", "between", ["2024-01-01", "2024-12-31"])]))
+		self.assertTrue(evaluate_filters(doc, [("birth_date", "Between", ["2024-01-01", "2024-12-31"])]))
+		self.assertFalse(evaluate_filters(doc, [("birth_date", "between", ["2025-01-01", "2025-12-31"])]))
 
 	def test_is_operator(self):
 		"""Test 'is' operator for checking if values are set or not set."""
@@ -538,6 +580,25 @@ class TestHTMLUtils(IntegrationTestCase):
 		clean = sanitize_html("<ol data-list='ordered' unknown_attr='xyz'></ol>")
 		self.assertIn("ordered", clean)
 		self.assertNotIn("xyz", clean)
+
+		# content that happens to parse as JSON is still sanitized when it carries tags
+		self.assertNotIn("<script>", sanitize_html('"<script>alert(1)</script>"'))
+		self.assertNotIn("<script>", sanitize_html('["<script>alert(1)</script>"]'))
+		self.assertNotIn("<script>", sanitize_html('{"x": "<script>alert(1)</script>"}'))
+
+		# tag-free content (including JSON) is returned unchanged
+		self.assertEqual(sanitize_html('[["name", "=", "x"]]'), '[["name", "=", "x"]]')
+		self.assertEqual(sanitize_html("plain text"), "plain text")
+
+	def test_sanitize_svg(self):
+		from frappe.utils.html_utils import sanitize_svg
+
+		clean = sanitize_svg('<svg onload="alert(1)"><script>alert(1)</script><circle r="4"/></svg>')
+		self.assertIn("<circle", clean)
+		self.assertNotIn("script", clean)
+		self.assertNotIn("onload", clean)
+
+		self.assertIsNone(sanitize_svg(None))
 
 
 class TestValidationUtils(IntegrationTestCase):
@@ -1206,6 +1267,29 @@ class TestLinkTitle(IntegrationTestCase):
 		user.delete()
 		prop_setter.delete()
 
+	def test_link_title_of_missing_document(self):
+		"""
+		Test that a link value with no target returns the docname without raising
+		"""
+		prop_setter = frappe.get_doc(
+			{
+				"doctype": "Property Setter",
+				"doc_type": "User",
+				"property": "show_title_field_in_link",
+				"property_type": "Check",
+				"doctype_or_field": "DocType",
+				"value": "1",
+			}
+		).insert()
+
+		from frappe.desk.search import get_link_title
+
+		frappe.clear_messages()
+		self.assertEqual(get_link_title("User", "meera.iyer@example.com"), "meera.iyer@example.com")
+		self.assertEqual(frappe.get_message_log(), [])
+
+		prop_setter.delete()
+
 
 class TestAppParser(MockedRequestTestCase):
 	def test_app_name_parser(self):
@@ -1697,6 +1781,18 @@ class TestDataUtils(UnitTestCase):
 
 	def tearDown(self):
 		frappe.local.lang = "en"
+
+	def test_orjson_dumps_fallback_on_large_integers(self):
+		def normalize(v):
+			return json.loads(v)
+
+		big = 2**63 + 1
+		result = orjson_dumps({"big": big})
+		self.assertEqual(normalize(result), normalize(json.dumps({"big": big})))
+
+		result_bytes = orjson_dumps({"big": big}, decode=False)
+		self.assertIsInstance(result_bytes, bytes)
+		self.assertEqual(normalize(result_bytes), normalize(json.dumps({"big": big}).encode()))
 
 	def test_comma_and(self):
 		self.assertEqual(comma_and(["a", "b", "c"]), "'a', 'b', and 'c'")

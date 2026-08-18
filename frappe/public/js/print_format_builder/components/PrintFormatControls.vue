@@ -1,19 +1,23 @@
 <template>
 	<div class="pfb-sidebar">
-		<!-- Tab bar -->
-		<div class="pfb-tabbar" role="tablist">
-			<button
-				v-for="tab in tabs"
-				:key="tab.id"
-				class="pfb-tab"
-				:class="{ active: activeTab === tab.id }"
-				:title="tab.label"
-				role="tab"
-				:aria-selected="activeTab === tab.id"
-				@click="activeTab = tab.id"
-			>
-				<span class="pfb-tab-label">{{ tab.label }}</span>
-			</button>
+		<!-- Tab bar: the Espresso tabs contract (es-tabs), same markup the desk's
+		     frappe.ui.Tabs and frappe-ui's Tabs.vue render -->
+		<div class="es-tabs" data-orientation="horizontal">
+			<div class="es-tabs__list" role="tablist" ref="tablist">
+				<button
+					v-for="tab in tabs"
+					:key="tab.id"
+					class="es-tabs__tab"
+					:data-tab="tab.id"
+					:data-state="activeTab === tab.id ? 'active' : 'inactive'"
+					role="tab"
+					:aria-selected="activeTab === tab.id"
+					@click="activeTab = tab.id"
+				>
+					{{ tab.label }}
+				</button>
+				<span class="es-tabs__indicator" :style="indicator_style"></span>
+			</div>
 		</div>
 
 		<!-- ── Fields ────────────────────────────────────────── -->
@@ -37,9 +41,9 @@
 			<!-- Header -->
 			<div class="pfb-fields-header">
 				<span class="pfb-fields-header-title">
-					{{ __("DOCUMENT FIELDS") }}
+					{{ __("Document Fields") }}
 					<span class="pfb-fields-header-sep">·</span>
-					{{ (meta.name || "").toUpperCase() }}
+					{{ meta.name }}
 				</span>
 			</div>
 
@@ -88,7 +92,6 @@
 
 		<!-- ── Blocks ─────────────────────────────────────────── -->
 		<div v-else-if="activeTab === 'blocks'" class="pfb-tab-body">
-			<div class="pfb-group-label">{{ __("Content") }}</div>
 			<draggable
 				:list="draggable_blocks"
 				:group="{ name: 'fields', pull: 'clone', put: false }"
@@ -110,8 +113,10 @@
 				</template>
 			</draggable>
 
-			<div class="pfb-group-label mt-3">{{ __("Page") }}</div>
+			<!-- Page Break drops into the sections container, not a column, so it
+			     stays a separate draggable — just without its own heading -->
 			<draggable
+				class="mt-2"
 				:list="page_break_block"
 				:group="{ name: 'sections', pull: 'clone', put: false }"
 				:sort="false"
@@ -137,27 +142,6 @@
 		<div v-else-if="activeTab === 'library'" class="pfb-tab-body">
 			<div class="pfb-group-label">
 				{{ __("Saved Snippets") }}
-				<span class="pfb-label-actions">
-					<button
-						class="es-button"
-						data-size="xs"
-						data-variant="ghost"
-						data-icon-button="true"
-						:disabled="!store.snippets.value.length"
-						:title="__('Export snippets')"
-						@click="store.export_snippets()"
-						v-html="frappe.utils.icon('download', 'xs')"
-					></button>
-					<button
-						class="es-button"
-						data-size="xs"
-						data-variant="ghost"
-						data-icon-button="true"
-						:title="__('Import snippets')"
-						@click="import_snippets"
-						v-html="frappe.utils.icon('upload', 'xs')"
-					></button>
-				</span>
 			</div>
 			<div v-if="!store.snippets.value.length" class="pfb-empty">
 				{{ __("Save a section or field as a snippet to reuse it here.") }}
@@ -242,104 +226,159 @@
 			</draggable>
 		</div>
 
-		<!-- ── Outline ────────────────────────────────────────── -->
-		<div v-else-if="activeTab === 'outline'" class="pfb-tab-body pfb-tree" role="tree">
-			<div v-if="!outline_tree.length" class="pfb-empty">
+		<!-- ── Layers ─────────────────────────────────────────── -->
+		<div v-else-if="activeTab === 'layers'" class="pfb-tab-body pfb-tree" role="tree">
+			<div v-if="!layout" class="pfb-empty">
 				{{ __("No sections yet. Add sections to the canvas.") }}
 			</div>
-			<div v-for="(node, i) in outline_tree" :key="i" class="pfb-tree-node">
-				<div
-					class="pfb-tree-row"
-					:class="{ active: store.selected_section.value === node.section }"
-					role="treeitem"
-					tabindex="0"
-					:aria-expanded="!is_collapsed(node.section)"
-					:aria-selected="store.selected_section.value === node.section"
-					@click="select_section(node.section)"
-					@keydown.enter.prevent="select_section(node.section)"
-					@keydown.space.prevent="select_section(node.section)"
-				>
-					<button
-						class="pfb-tree-chevron"
-						:class="{ collapsed: is_collapsed(node.section) }"
-						@click.stop="toggle_collapse(node.section)"
-						v-html="frappe.utils.icon('chevron-down', 'sm')"
-					></button>
-					<span
-						class="pfb-tree-icon"
-						v-html="frappe.utils.icon('rectangle-horizontal', 'sm')"
-					></span>
-					<span class="pfb-tree-label">
-						{{ node.section.label || __("Untitled section") }}
-					</span>
-				</div>
-				<div v-if="!is_collapsed(node.section)" class="pfb-tree-children">
-					<div v-for="(col, ci) in node.columns" :key="ci" class="pfb-tree-node">
+			<draggable
+				v-else
+				v-model="tree_sections"
+				group="pfb-tree-sections"
+				handle=".pfb-drag-handle"
+				item-key="id"
+				:move="(e) => !!e.related?.querySelector('.pfb-drag-handle')"
+				v-bind="DRAG_OPTIONS"
+				@start="setDragging(true)"
+				@end="setDragging(false)"
+			>
+				<template #item="{ element: section }">
+					<div class="pfb-tree-node">
 						<div
 							class="pfb-tree-row"
+							@mouseenter="store.hovered_section.value = section"
+							@mouseleave="store.hovered_section.value = null"
+							:class="{
+								'pfb-drag-handle': !zone_of(section),
+								active: store.selected_sections.value.includes(section),
+								'pfb-tree-hover': store.hovered_node.value === section,
+							}"
 							role="treeitem"
 							tabindex="0"
-							@click="select_section(node.section)"
-							@keydown.enter.prevent="select_section(node.section)"
-							@keydown.space.prevent="select_section(node.section)"
+							:aria-expanded="!is_collapsed(section)"
+							:aria-selected="store.selected_sections.value.includes(section)"
+							@click="select_section(section)"
+							@keydown.enter.prevent="select_section(section)"
+							@keydown.space.prevent="select_section(section)"
 						>
 							<button
-								v-if="col.fields.length"
 								class="pfb-tree-chevron"
-								:class="{ collapsed: is_collapsed(col.column) }"
-								@click.stop="toggle_collapse(col.column)"
+								:class="{ collapsed: is_collapsed(section) }"
+								@click.stop="toggle_collapse(section)"
 								v-html="frappe.utils.icon('chevron-down', 'sm')"
 							></button>
-							<span v-else class="pfb-tree-spacer"></span>
 							<span
 								class="pfb-tree-icon"
-								v-html="frappe.utils.icon('columns-2', 'sm')"
+								v-html="frappe.utils.icon('rectangle-horizontal', 'sm')"
 							></span>
-							<span class="pfb-tree-label text-muted">
-								{{ __("Column {0}", [ci + 1]) }}
+							<span class="pfb-tree-label">
+								{{ section.label || zone_of(section) || __("Untitled section") }}
 							</span>
 						</div>
-						<div v-if="!is_collapsed(col.column)" class="pfb-tree-children">
+						<div v-if="!is_collapsed(section)" class="pfb-tree-children">
 							<div
-								v-for="(field, fi) in col.fields"
-								:key="fi"
-								class="pfb-tree-row"
-								:class="{ active: store.selected_fields.value.includes(field) }"
-								role="treeitem"
-								tabindex="0"
-								:aria-selected="store.selected_fields.value.includes(field)"
-								@click="select_field(field, node.section, $event)"
-								@keydown.enter.prevent="select_field(field, node.section, $event)"
-								@keydown.space.prevent="select_field(field, node.section, $event)"
+								v-for="(col, ci) in section.columns"
+								:key="ci"
+								class="pfb-tree-node"
 							>
-								<span class="pfb-tree-spacer"></span>
-								<span
-									class="pfb-tree-icon"
-									v-html="frappe.utils.icon(field_icon(field), 'sm')"
-								></span>
-								<span class="pfb-tree-label">{{ field_label(field) }}</span>
-								<span
-									v-if="field_broken(field)"
-									class="pfb-tree-warn"
-									:title="
-										__('Field “{0}” no longer exists on {1}', [
-											field.fieldname,
-											meta.name,
-										])
-									"
-									v-html="frappe.utils.icon('triangle-alert', 'sm')"
-								></span>
-								<span class="pfb-tree-badge">{{ field.fieldtype }}</span>
+								<!-- a lone column isn't a real division of the section, so it
+								     only earns a row once there's more than one -->
+								<div
+									v-if="section.columns.length > 1"
+									class="pfb-tree-row"
+									role="treeitem"
+									tabindex="0"
+									@click="select_section(section)"
+									@keydown.enter.prevent="select_section(section)"
+									@keydown.space.prevent="select_section(section)"
+								>
+									<button
+										v-if="col.fields.length"
+										class="pfb-tree-chevron"
+										:class="{ collapsed: is_collapsed(col) }"
+										@click.stop="toggle_collapse(col)"
+										v-html="frappe.utils.icon('chevron-down', 'sm')"
+									></button>
+									<span v-else class="pfb-tree-spacer"></span>
+									<span
+										class="pfb-tree-icon"
+										v-html="frappe.utils.icon('columns-2', 'sm')"
+									></span>
+									<span class="pfb-tree-label text-muted">
+										{{ __("Column {0}", [ci + 1]) }}
+									</span>
+								</div>
+								<draggable
+									v-if="section.columns.length === 1 || !is_collapsed(col)"
+									v-model="col.fields"
+									class="pfb-tree-children pfb-tree-fields"
+									:class="{
+										'pfb-tree-fields--flush': section.columns.length === 1,
+									}"
+									group="pfb-tree-fields"
+									item-key="id"
+									:emptyInsertThreshold="20"
+									v-bind="DRAG_OPTIONS"
+									@start="setDragging(true)"
+									@end="setDragging(false)"
+									@add="(e) => select_dropped_layer_field(col, e)"
+								>
+									<template #item="{ element: field }">
+										<div
+											v-show="!field.remove"
+											class="pfb-tree-row"
+											:class="{
+												active: store.selected_fields.value.includes(
+													field
+												),
+												'pfb-tree-hover':
+													store.hovered_node.value === field,
+											}"
+											@mouseenter="store.hovered_field.value = field"
+											@mouseleave="store.hovered_field.value = null"
+											role="treeitem"
+											tabindex="0"
+											:aria-selected="
+												store.selected_fields.value.includes(field)
+											"
+											@click="select_field(field, section, $event)"
+											@keydown.enter.prevent="
+												select_field(field, section, $event)
+											"
+											@keydown.space.prevent="
+												select_field(field, section, $event)
+											"
+										>
+											<span class="pfb-tree-spacer"></span>
+											<span
+												class="pfb-tree-icon"
+												v-html="frappe.utils.icon(field_icon(field), 'sm')"
+											></span>
+											<span class="pfb-tree-label">{{
+												field_label(field)
+											}}</span>
+											<span
+												v-if="field_broken(field)"
+												class="pfb-tree-warn"
+												:title="
+													__(
+														'Field \u201c{0}\u201d no longer exists on {1}',
+														[field.fieldname, meta.name]
+													)
+												"
+												v-html="frappe.utils.icon('triangle-alert', 'sm')"
+											></span>
+										</div>
+									</template>
+								</draggable>
 							</div>
 						</div>
 					</div>
-				</div>
+				</template>
+			</draggable>
+			<div v-if="layout && !layout.sections.length" class="pfb-empty">
+				{{ __("No sections yet. Add sections to the canvas.") }}
 			</div>
-		</div>
-
-		<!-- ── Setting ────────────────────────────────────────── -->
-		<div v-else-if="activeTab === 'format'" class="pfb-tab-body">
-			<PrintSettingsPanel />
 		</div>
 	</div>
 </template>
@@ -356,7 +395,6 @@ import {
 	setDragging,
 } from "../utils";
 import BlockCard from "./BlockCard.vue";
-import PrintSettingsPanel from "./PrintSettingsPanel.vue";
 import { useStore } from "../stores";
 import { computed, onMounted, onUnmounted, nextTick, ref, watch, inject } from "vue";
 
@@ -368,17 +406,16 @@ let raw_templates = ref([]);
 // ── tab definitions ───────────────────────────────────────
 const TAB_STORE_KEY = "pfb_active_tab";
 const tabs = computed(() => [
-	{ id: "outline", label: __("Outline") },
+	{ id: "layers", label: __("Layers") },
 	{ id: "fields", label: __("Fields") },
 	{ id: "blocks", label: __("Blocks") },
 	{ id: "library", label: __("Library") },
-	{ id: "format", label: __("Setting") },
 ]);
 
 // A stale tab id would render an empty sidebar, so fall back to the first tab
 function restore_tab() {
 	const saved = localStorage.getItem(TAB_STORE_KEY);
-	return tabs.value.some((t) => t.id === saved) ? saved : "outline";
+	return tabs.value.some((t) => t.id === saved) ? saved : "layers";
 }
 let activeTab = ref(restore_tab());
 
@@ -389,7 +426,7 @@ function focus_search() {
 
 // store
 let store = inject("$store");
-let { meta, layout } = useStore();
+let { meta, layout, print_format } = useStore();
 
 // ── blocks tab items ──────────────────────────────────────
 const page_break_block = [
@@ -400,21 +437,36 @@ const page_break_block = [
 	},
 ];
 
-const draggable_blocks = [
-	{
-		label: __("Custom HTML"),
-		fieldname: "custom_html",
-		fieldtype: "HTML",
-		html: "",
-		custom: 1,
-		icon: "code",
-		desc: __("Raw HTML or Jinja template"),
-	},
+const draggable_blocks = computed(() => [
+	...(print_format.value?.pdf_generator === "Typst"
+		? [
+				{
+					label: __("Typst"),
+					fieldname: "typst_block",
+					fieldtype: "Typst",
+					typst: "",
+					custom: 1,
+					icon: "code",
+					desc: __("Raw Typst markup"),
+				},
+		  ]
+		: [
+				{
+					label: __("Custom HTML"),
+					fieldname: "custom_html",
+					fieldtype: "HTML",
+					html: "",
+					custom: 1,
+					icon: "code",
+					desc: __("Raw HTML or Jinja template"),
+				},
+		  ]),
 	{
 		label: __("Spacer"),
 		fieldname: "spacer",
 		fieldtype: "Spacer",
 		custom: 1,
+		height: 10,
 		icon: "minus",
 		desc: __("Vertical whitespace"),
 	},
@@ -437,19 +489,6 @@ const draggable_blocks = [
 		width: "",
 	},
 	{
-		label: __("Barcode"),
-		fieldname: "barcode",
-		fieldtype: "Barcode",
-		custom: 1,
-		icon: "barcode",
-		desc: __("Barcode or QR code from a field or static value"),
-		barcode_field: "",
-		barcode_value: "",
-		barcode_format: "CODE128",
-		show_text: true,
-		width: "",
-	},
-	{
 		label: __("Repeater"),
 		fieldname: "repeater",
 		fieldtype: "Repeater",
@@ -462,39 +501,10 @@ const draggable_blocks = [
 			{ template: [], align: "right" },
 		],
 	},
-];
+]);
 
 function confirm_delete_snippet(name) {
 	frappe.confirm(__("Delete the snippet '{0}'?", [name]), () => store.delete_snippet(name));
-}
-
-function import_snippets() {
-	const input = document.createElement("input");
-	input.type = "file";
-	input.accept = "application/json,.json";
-	input.onchange = async () => {
-		const file = input.files?.[0];
-		if (!file) return;
-		let payload;
-		try {
-			payload = JSON.parse(await file.text());
-		} catch {
-			frappe.throw(__("{0} is not a valid JSON file", [file.name]));
-		}
-		const { imported, other_doctypes, skipped } = await store.import_snippets(payload);
-		let message = __("Imported {0} snippet(s)", [imported]);
-		if (other_doctypes) {
-			message += " " + __("({0} belong to other document types)", [other_doctypes]);
-		}
-		if (skipped.length) {
-			message += " — " + __("skipped {0}", [skipped.join(", ")]);
-		}
-		frappe.show_alert(
-			{ message, indicator: skipped.length ? "orange" : "green" },
-			skipped.length ? 7 : 5
-		);
-	};
-	input.click();
 }
 
 // ── helpers ────────────────────────────────────────────────
@@ -506,12 +516,14 @@ function clone_field(df) {
 		"options",
 		"table_columns",
 		"html",
+		"typst",
 		"field_template",
 		"source",
 		"repeater_columns",
 		"custom",
 		"image_url",
 		"width",
+		"height",
 		"barcode_field",
 		"barcode_value",
 		"barcode_format",
@@ -574,14 +586,19 @@ function build_field(df) {
 }
 
 function select_section(section) {
-	store.scroll_to_section.value = section;
+	store.scroll_target.value = section;
 	store.select_section(section);
 }
 
 function select_field(field, section, e) {
 	const additive = !!(e && (e.metaKey || e.ctrlKey || e.shiftKey));
-	if (section && !additive) store.scroll_to_section.value = section;
+	if (!additive) store.scroll_target.value = field;
 	store.select_field(field, additive);
+}
+
+function select_dropped_layer_field(column, e) {
+	const field = column.fields[e.newIndex];
+	if (field) store.select_field(field);
 }
 
 function field_label(f) {
@@ -599,16 +616,6 @@ function field_broken(f) {
 	return !known_fieldnames.value.has(f.fieldname);
 }
 
-let outline_tree = computed(() =>
-	visible_sections.value.map((section) => ({
-		section,
-		columns: (section.columns || []).map((column) => ({
-			column,
-			fields: (column.fields || []).filter((f) => !f.remove),
-		})),
-	}))
-);
-
 const FIELD_ICONS = {
 	Table: "table",
 	Repeater: "rows-3",
@@ -624,6 +631,20 @@ const FIELD_ICONS = {
 };
 function field_icon(f) {
 	return FIELD_ICONS[f.fieldtype] || "type";
+}
+
+// the zones are sections too, so the tree lists them alongside the body ones —
+// only their order is fixed, since a header can't become a body section
+let tree_sections = computed({
+	get: () =>
+		[layout.value.header, ...layout.value.sections, layout.value.footer].filter(Boolean),
+	set: (v) => (layout.value.sections = v.filter((s) => !zone_of(s))),
+});
+
+function zone_of(section) {
+	if (section && section === layout.value?.header) return __("Header");
+	if (section && section === layout.value?.footer) return __("Footer");
+	return "";
 }
 
 let collapsed_nodes = ref(new Set());
@@ -746,9 +767,23 @@ function enter_tab(tab) {
 	if (tab === "library") fetch_templates();
 }
 
+// the indicator is the moving bar under the active tab; espresso's tabs.css
+// reads its offset and width from these two custom properties
+let tablist = ref(null);
+let indicator_style = ref({});
+function move_indicator() {
+	const tab = tablist.value?.querySelector('[data-state="active"]');
+	if (!tab) return;
+	indicator_style.value = {
+		"--es-tabs-indicator-x": `${tab.offsetLeft}px`,
+		"--es-tabs-indicator-w": `${tab.offsetWidth}px`,
+	};
+}
+
 watch(activeTab, (tab) => {
 	localStorage.setItem(TAB_STORE_KEY, tab);
 	enter_tab(tab);
+	nextTick(move_indicator);
 });
 
 let print_templates_list = computed(() => {
@@ -773,12 +808,6 @@ let print_templates_list = computed(() => {
 	});
 });
 
-// ── computed: outline tab ──────────────────────────────────
-let visible_sections = computed(() => {
-	if (!layout.value) return [];
-	return layout.value.sections.filter((s) => !s.remove);
-});
-
 // ── computed: misc ─────────────────────────────────────────
 let new_template_link = computed(
 	() => `/app/print-format-field-template/new?document_type=${meta.value?.name || ""}`
@@ -790,6 +819,7 @@ onMounted(() => {
 
 	// the watcher only fires on change, so a restored tab needs its setup run here
 	enter_tab(activeTab.value);
+	nextTick(move_indicator);
 });
 
 onUnmounted(() => {
@@ -822,55 +852,20 @@ function handle_slash_key(e) {
 	background: var(--fg-color);
 }
 
-/* ── Tab bar ─────────────────────────────────────────────── */
-.pfb-tabbar {
-	display: flex;
-	padding: 6px 6px 0;
-	gap: 2px;
-	border-bottom: 1px solid var(--border-color);
+/* the tab bar itself is styled by espresso/components/tabs.css; the sidebar is
+   narrower than a page, so it takes a tighter rhythm than the default */
+.es-tabs {
 	flex-shrink: 0;
 }
 
-.pfb-tab {
-	flex: 1;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 8px 2px;
-	border: none;
-	background: transparent;
-	border-radius: var(--radius) var(--radius) 0 0;
-	color: var(--text-muted);
-	cursor: pointer;
-	transition: color 0.12s, background 0.12s;
-	font-size: var(--text-tiny);
-	font-weight: var(--weight-medium);
-	position: relative;
+.es-tabs__list {
+	gap: calc(var(--spacing) * 3);
+	padding-inline: calc(var(--spacing) * 3);
 }
 
-.pfb-tab:hover {
-	color: var(--text-color);
-	background: var(--gray-100);
-}
-
-.pfb-tab.active {
-	color: var(--primary);
-	background: var(--fg-color);
-}
-
-.pfb-tab.active::after {
-	content: "";
-	position: absolute;
-	bottom: 0;
-	left: 0;
-	right: 0;
-	height: 2px;
-	background: var(--primary);
-	border-radius: 2px 2px 0 0;
-}
-
-.pfb-tab-label {
-	line-height: 1;
+.es-tabs__tab {
+	padding-block: calc(var(--spacing) * 2);
+	font-size: var(--text-sm);
 }
 
 /* ── Tab body ─────────────────────────────────────────────── */
@@ -937,7 +932,6 @@ function handle_slash_key(e) {
 .pfb-fields-header-title {
 	font-size: var(--text-tiny);
 	font-weight: var(--weight-semibold);
-	letter-spacing: 0.06em;
 	color: var(--text-muted);
 }
 
@@ -1035,8 +1029,10 @@ function handle_slash_key(e) {
 	user-select: none;
 }
 
-.pfb-tree-row:hover {
-	background: var(--gray-100);
+.pfb-tree-row:hover,
+.pfb-tree-row.pfb-tree-hover {
+	outline: 1px solid var(--pfb-accent);
+	outline-offset: -1px;
 }
 
 .pfb-tree-row.active {
@@ -1087,12 +1083,6 @@ function handle_slash_key(e) {
 	white-space: nowrap;
 }
 
-.pfb-tree-badge {
-	font-size: var(--text-tiny);
-	color: var(--gray-500);
-	flex-shrink: 0;
-}
-
 .pfb-tree-warn {
 	display: inline-flex;
 	flex-shrink: 0;
@@ -1101,6 +1091,16 @@ function handle_slash_key(e) {
 
 .pfb-tree-children {
 	margin-left: 18px;
+}
+
+.pfb-tree-fields {
+	min-height: 8px;
+}
+
+/* single-column sections have no Column row, so their fields sit directly
+   under the section instead of indenting past a row that isn't there */
+.pfb-tree-fields--flush {
+	margin-left: 0;
 }
 
 /* ── Empty state ─────────────────────────────────────────── */
