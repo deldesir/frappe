@@ -253,7 +253,16 @@ def create_workspace_sidebar_for_workspaces():
 			for s in shortcuts:
 				workspace_sidebar_item = frappe.new_doc("Workspace Sidebar Item")
 				workspace_sidebar_item.update(
-					{"label": s.label, "link_to": s.link_to, "link_type": s.type, "type": "Link", "idx": idx}
+					{
+						"label": s.label,
+						"link_to": s.link_to,
+						# URL-type shortcuts carry their target in `url`, not `link_to` —
+						# without it the generated sidebar item is a dead link
+						"url": s.url,
+						"link_type": s.type,
+						"type": "Link",
+						"idx": idx,
+					}
 				)
 				items.append(workspace_sidebar_item)
 				idx += 1
