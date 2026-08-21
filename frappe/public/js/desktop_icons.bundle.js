@@ -297,7 +297,9 @@ class DesktopPage {
 					return !me.edit_mode;
 				},
 				onClick: function () {
-					me.$desktop_edit_button.hide();
+					// the floating edit button only exists on flows that ran
+					// setup_edit_button; start_editing_layout removes it anyway
+					me.$desktop_edit_button?.hide();
 					frappe.new_desktop_icons = JSON.parse(JSON.stringify(frappe.desktop_icons));
 					me.start_editing_layout();
 				},
