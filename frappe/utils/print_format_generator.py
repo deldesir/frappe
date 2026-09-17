@@ -37,11 +37,10 @@ def download_pdf(
 	letterhead: str | None = None,
 	settings: str | dict | None = None,
 ):
-	from frappe.www.printview import resolve_print_format, set_link_titles, validate_print
+	from frappe.www.printview import resolve_print_format, validate_print
 
 	doc = frappe.get_doc(doctype, name)
 	validate_print(doc)
-	set_link_titles(doc)
 	print_format, is_beta = resolve_print_format(print_format, doc.meta)
 	if not is_beta:
 		# jinja formats have no layout for the generator — hand off to the
@@ -234,10 +233,13 @@ def get_html(
 	trigger_print=False,
 	settings=None,
 	no_letterhead=None,
+	doc=None,
 ):
 	from frappe.www.printview import validate_print
 
-	doc = frappe.get_doc(doctype, name)
+	# an unsaved document (e.g. a preview built in memory) can only be rendered
+	# from the doc the caller already holds — there is nothing to fetch by name
+	doc = doc or frappe.get_doc(doctype, name)
 	validate_print(doc)
 	generator = PrintFormatGenerator(
 		print_format, doc, letterhead, style=style, settings=settings, no_letterhead=no_letterhead
@@ -706,6 +708,12 @@ class PrintFormatGenerator:
 	}
 
 	def get_layout(self, print_format):
+		if not print_format.format_data:
+			# a format created without a layout (the New dialog inserts a bare row)
+			# prints the default layout instead of a blank page until its first save
+			from frappe.printing.doctype.print_format.classic_converter import create_default_layout
+
+			return self.get_processed_layout(create_default_layout(frappe.get_meta(print_format.doc_type)))
 		try:
 			layout = frappe.parse_json(print_format.format_data) or copy.deepcopy(self.EMPTY_LAYOUT)
 		except Exception:
@@ -719,6 +727,9 @@ class PrintFormatGenerator:
 			)
 			if not print_format.page_number or print_format.page_number == "Hide":
 				print_format.page_number = "Bottom Center"
+		return self.get_processed_layout(layout)
+
+	def get_processed_layout(self, layout):
 		layout = self.normalise_layout(layout)
 		layout = self.apply_permlevel_access(layout)
 		layout = self.set_field_renderers(layout)
@@ -893,6 +904,7 @@ class PrintFormatGenerator:
 		df["renderer"] = self._FIELD_RENDERERS.get(fieldtype) or fieldtype.replace(" ", "")
 		df["section"] = section
 		self.prepare_barcode(df)
+		self.prepare_linked_field(df)
 		self.filter_conditional_rows(df)
 
 	def set_field_renderers(self, layout):
@@ -966,6 +978,40 @@ class PrintFormatGenerator:
 				},
 				indent=None,
 			)
+
+	def prepare_linked_field(self, df):
+		"""Resolve a Linked Field's one-hop path (link_field.target_field) to a
+		formatted value from the linked document."""
+		if df.get("fieldtype") != "Linked Field" or not df.get("link_path"):
+			return
+		path = df["link_path"]
+		if "." not in path:
+			return
+		link_fieldname, target_fieldname = path.split(".", 1)
+		link_df = self.doc.meta.get_field(link_fieldname)
+		if not link_df or link_df.fieldtype != "Link" or not link_df.options:
+			return
+		if not self.has_field_access(self.doc, self.doc.meta, link_fieldname):
+			return
+		name = self.doc.get(link_fieldname)
+		if not name or not frappe.has_permission(link_df.options, "read", doc=name):
+			return
+		target_meta = frappe.get_meta(link_df.options)
+		target_df = target_meta.get_field(target_fieldname)
+		if not target_df:
+			return
+		if target_df.permlevel:
+			target_doc = frappe.get_doc(link_df.options, name)
+			if not target_doc.has_permlevel_access_to(target_fieldname, target_df):
+				return
+		value = frappe.db.get_value(link_df.options, name, target_fieldname)
+		if value is None:
+			return
+		if target_df.fieldtype == "Attach Image":
+			df["renderer"] = "AttachImage"
+			df["_value"] = value
+			return
+		df["_value"] = frappe.format_value(value, df=target_df, doc=self.doc)
 
 	def process_margin_texts(self, layout):
 		for key in (*self._TOP_POSITIONS, *self._BOTTOM_POSITIONS):

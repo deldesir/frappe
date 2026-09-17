@@ -18,9 +18,13 @@
 		<!-- One header area: the letterhead and the header fields zone read as a single
 		     region. The fields wrapper carries the body font (letterhead stays unstyled),
 		     and the empty header drop-zone only surfaces while a drag is in progress. -->
-		<div class="pfb-header-area">
+		<div class="pfb-header-area" :class="{ 'pfb-header-area--selected': header_selected }">
 			<LetterHeadZoneEditor zone="header" />
-			<div class="pfb-header-fields" :style="bodyStyles">
+			<div
+				class="pfb-header-fields"
+				:class="{ 'pfb-header-fields--empty': header_is_empty }"
+				:style="bodyStyles"
+			>
 				<PrintFormatSection :section="layout.header" :is_header="true" zone="header" />
 			</div>
 		</div>
@@ -83,7 +87,16 @@ import { useStore } from "../../stores";
 import { computed, inject, watch, nextTick, onMounted, onUnmounted, ref } from "vue";
 
 let { layout, letterhead, print_format } = useStore();
+
+// one definition of "the header holds no fields" — the tree and the canvas
+// both key off it, so a deleted field (kept in the DOM as a tombstone) can't
+// make them disagree
+let header_is_empty = computed(
+	() =>
+		!(layout.value.header?.columns || []).some((c) => (c.fields || []).some((f) => !f.remove))
+);
 let store = inject("$store");
+let header_selected = computed(() => store.selected_sections.value.includes(layout.value.header));
 
 const PAGE_SIZES_MM = { A4: [210, 297], Letter: [216, 279.4] };
 let page_size = ref("A4");
