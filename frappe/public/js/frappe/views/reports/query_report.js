@@ -1173,6 +1173,11 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 				[cstr(format_number(data.length, null, 0)).bold(), __("export").bold()]
 			);
 
+			if (this.datatable) {
+				this.datatable.destroy();
+				this.datatable = null;
+			}
+
 			this.toggle_message(true, `${frappe.utils.icon("triangle-alert")} ${msg}`);
 			return;
 		}
@@ -1820,8 +1825,6 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 	}
 
 	export_report() {
-		let visible_idx = this.get_validated_visible_indexes();
-
 		const extra_fields = [];
 		const applied_filters = this.get_applied_filters(this.get_filter_values());
 
@@ -1882,6 +1885,9 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 			}) => {
 				this.make_access_log("Export", file_format);
 
+				const has_datatable = !!this.datatable;
+				let visible_idx = has_datatable ? this.get_validated_visible_indexes() : [];
+
 				const filters = this.get_filter_values(true);
 				const applied_filters = this.get_applied_filters(filters);
 
@@ -1897,7 +1903,7 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 				const totalRows = this.data.length - (this.raw_data.add_total_row ? 1 : 0);
 				const isIdentityOrder =
 					visible_idx.length === totalRows && visible_idx.every((idx, i) => idx === i);
-				const ignore_visible_idx = isIdentityOrder;
+				const ignore_visible_idx = !has_datatable || isIdentityOrder;
 				visible_idx = ignore_visible_idx ? [] : visible_idx;
 
 				const args = {
@@ -2058,7 +2064,8 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 						this.report_doc.letter_head,
 						this.get_visible_columns(),
 						true,
-						"PDF Settings"
+						"PDF Settings",
+						this.report_doc.default_print_format
 					);
 					this.add_portrait_warning(dialog);
 				},
@@ -2087,6 +2094,7 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 								fieldtype: "Select",
 								fieldname: "doctype",
 								label: __("From Document Type"),
+								reqd: 1,
 								options: this.linked_doctypes?.map((df) => ({
 									label: df.doctype + " (" + frappe.unscrub(df.fieldname) + ")",
 									value: JSON.stringify({
@@ -2127,6 +2135,7 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 								fieldtype: "Autocomplete",
 								label: __("Field"),
 								fieldname: "field",
+								reqd: 1,
 								options: [],
 							},
 							{
@@ -2377,16 +2386,11 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 			this.page.main
 		);
 		if (this.tree_report) {
-			this.$tree_footer = $(`<div class="tree-footer col-md-12">
-				<div class="input-group">
-				  <input id="tree-level" type="number" class="form-control" style="max-width: 120px; border-right: 1px solid var(--border-color);" aria-label="Tree Level" value="2">
-					<button class="btn btn-xs btn-secondary" style="border-top-left-radius: 0px; border-bottom-left-radius: 0px;" data-action="set_tree_level">
-						${__("Set Level")}</button>
-					<button class="btn btn-xs btn-secondary" data-action="expand_all_rows">
-						${__("Expand All")}</button>
-					<button class="btn btn-xs btn-secondary" data-action="collapse_all_rows">
-						${__("Collapse All")}</button>
-				</div>
+			this.$tree_footer = $(`<div class="tree-footer col-md-6">
+				<button class="btn btn-xs btn-secondary" data-action="expand_all_rows">
+					${__("Expand All")}</button>
+				<button class="btn btn-xs btn-secondary" data-action="collapse_all_rows">
+					${__("Collapse All")}</button>
 			</div>`);
 			$(this.$report_footer).append(this.$tree_footer);
 			if (this.report_settings.initial_depth == 0) {
@@ -2410,43 +2414,14 @@ frappe.views.QueryReport = class QueryReport extends frappe.views.BaseList {
 
 	expand_all_rows() {
 		this.$tree_footer.find("[data-action=expand_all_rows]").hide();
-		let rows = this.datatable.rowmanager.datamanager.getRows();
-		let maxDepth = rows.reduce((max, row) => {
-			return Math.max(max, row.meta.indent || 0);
-		}, 0);
-		var treeLevel = maxDepth + 1;
-		this.$tree_footer.find("#tree-level").val(treeLevel);
 		this.datatable.rowmanager.expandAllNodes();
 		this.$tree_footer.find("[data-action=collapse_all_rows]").show();
 	}
 
 	collapse_all_rows() {
 		this.$tree_footer.find("[data-action=collapse_all_rows]").hide();
-		this.$tree_footer.find("#tree-level").val(1);
 		this.datatable.rowmanager.collapseAllNodes();
 		this.$tree_footer.find("[data-action=expand_all_rows]").show();
-	}
-
-	set_tree_level() {
-		var inputVal = parseInt(this.$tree_footer.find("#tree-level").val(), 10) || 0;
-		let rows = this.datatable.rowmanager.datamanager.getRows();
-		let maxDepth = rows.reduce((max, row) => {
-			return Math.max(max, row.meta.indent || 0);
-		}, 0);
-		var treeLevel = Math.min(maxDepth + 1, Math.max(1, inputVal));
-		var treeDepth = treeLevel - 1;
-		this.$tree_footer.find("#tree-level").val(treeLevel);
-		if (treeDepth === 0) {
-			this.$tree_footer.find("[data-action=collapse_all_rows]").hide();
-		} else {
-			this.$tree_footer.find("[data-action=collapse_all_rows]").show();
-		}
-		this.datatable.rowmanager.setTreeDepth(treeDepth);
-		if (treeDepth === 0) {
-			this.$tree_footer.find("[data-action=expand_all_rows]").show();
-		} else {
-			this.$tree_footer.find("[data-action=expand_all_rows]").hide();
-		}
 	}
 
 	message_div(message) {
