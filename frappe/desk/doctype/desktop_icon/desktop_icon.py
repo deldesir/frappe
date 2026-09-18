@@ -397,14 +397,20 @@ def create_desktop_icons_from_installed_apps():
 		app_details = frappe.get_hooks("add_to_apps_screen", app_name=a)
 		if not frappe.db.exists("Desktop Icon", [{"icon_type": "App"}, {"app": a}]):
 			if len(app_details) != 0:
+				# An entry without a route only lists the app in the Apps menu; there is
+				# nothing for a tile to open, and a KeyError here would abort the loop and
+				# leave every later app without its tile.
+				route = app_details[0].get("route")
+				if not route:
+					continue
 				icon = frappe.new_doc("Desktop Icon")
 				icon.label = app_title
 				icon.link_type = "External"
 				icon.idx = index
 				icon.icon_type = "App"
 				icon.app = a
-				icon.link = app_details[0]["route"]
-				icon.logo_url = app_details[0]["logo"]
+				icon.link = route
+				icon.logo_url = app_details[0].get("logo")
 				if not frappe.db.exists("Desktop Icon", [{"label": icon.label, "icon_type": icon.icon_type}]):
 					icon.save()
 				index += 1
