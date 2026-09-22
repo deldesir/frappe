@@ -24,35 +24,19 @@
 		<div v-if="activeTab === 'fields'" class="pfb-tab-body pfb-fields-tab">
 			<!-- Search -->
 			<div class="pfb-search-wrap">
-				<span
-					class="pfb-search-icon text-muted"
-					v-html="frappe.utils.icon('search', 'xs')"
-				></span>
+				<span class="pfb-search-icon" v-html="frappe.utils.icon('search', 'sm')"></span>
 				<input
 					ref="search_input"
 					class="pfb-search"
 					type="text"
-					:placeholder="__('Search fields...')"
+					:placeholder="__('Search fields')"
 					v-model="search_text"
 				/>
 				<kbd class="pfb-search-kbd" @click="focus_search">/</kbd>
 			</div>
 
-			<!-- Header -->
-			<div class="pfb-fields-header">
-				<span class="pfb-fields-header-title">
-					{{ __("Document Fields") }}
-					<span class="pfb-fields-header-sep">·</span>
-					{{ meta.name }}
-				</span>
-			</div>
-
 			<!-- Groups -->
-			<div
-				v-for="group in field_groups"
-				:key="group.label || '__root__'"
-				class="pfb-field-group"
-			>
+			<div v-for="(group, gi) in field_groups" :key="gi" class="pfb-field-group">
 				<div v-if="group.label" class="pfb-group-label">{{ group.label }}</div>
 				<draggable
 					:list="group.fields"
@@ -70,10 +54,6 @@
 							:title="element.fieldname"
 							@click="add_to_layout(element)"
 						>
-							<span
-								class="pfb-field-drag"
-								v-html="frappe.utils.icon('grip', 'xs')"
-							></span>
 							<span class="pfb-field-label">{{ element.label }}</span>
 							<span class="pfb-field-type">{{ element.fieldtype }}</span>
 						</div>
@@ -91,7 +71,7 @@
 		</div>
 
 		<!-- ── Blocks ─────────────────────────────────────────── -->
-		<div v-else-if="activeTab === 'blocks'" class="pfb-tab-body">
+		<div v-else-if="activeTab === 'blocks'" class="pfb-tab-body pfb-blocks-tab">
 			<draggable
 				:list="draggable_blocks"
 				:group="{ name: 'fields', pull: 'clone', put: false }"
@@ -143,8 +123,8 @@
 			<div class="pfb-group-label">
 				{{ __("Saved Snippets") }}
 			</div>
-			<div v-if="!store.snippets.value.length" class="pfb-empty">
-				{{ __("Save a section or field as a snippet to reuse it here.") }}
+			<div class="pfb-group-desc">
+				{{ __("Save a section or field as a snippet") }}
 			</div>
 			<template v-for="grp in snippet_groups" :key="grp.type">
 				<draggable
@@ -177,7 +157,7 @@
 									data-icon-button="true"
 									:title="__('Delete snippet')"
 									@click.stop="confirm_delete_snippet(snip.name)"
-									v-html="frappe.utils.icon('trash', 'xs')"
+									v-html="frappe.utils.icon('trash', 'sm')"
 								></button>
 							</template>
 						</BlockCard>
@@ -185,8 +165,8 @@
 				</draggable>
 			</template>
 
-			<div class="pfb-group-label mt-3">
-				{{ __("Field Templates") }}
+			<div class="pfb-group-label">
+				{{ __("Field template") }}
 				<a
 					:href="'/app/print-format-field-template'"
 					target="_blank"
@@ -195,16 +175,11 @@
 					{{ __("Manage") }}
 				</a>
 			</div>
-			<div v-if="!print_templates_list.length" class="pfb-empty">
-				{{
-					__(
-						"Field templates render a specific field with custom Jinja/HTML, e.g. a custom items table."
-					)
-				}}
-				<a :href="new_template_link" target="_blank">{{ __("Create one") }}</a>
+			<div class="pfb-group-desc">
+				{{ __("Make a custom field with HTML or Jinja") }}
 			</div>
 			<draggable
-				v-else
+				v-if="print_templates_list.length"
 				:list="print_templates_list"
 				:group="{ name: 'fields', pull: 'clone', put: false }"
 				:sort="false"
@@ -249,7 +224,7 @@
 							@mouseenter="store.hovered_section.value = section"
 							@mouseleave="store.hovered_section.value = null"
 							:class="{
-								'pfb-drag-handle': !zone_of(section),
+								'pfb-drag-handle': !zone_label(section),
 								active: store.selected_sections.value.includes(section),
 								'pfb-tree-hover': store.hovered_node.value === section,
 							}"
@@ -272,12 +247,14 @@
 								v-html="frappe.utils.icon('rectangle-horizontal', 'sm')"
 							></span>
 							<span class="pfb-tree-label">
-								{{ section.label || zone_of(section) || __("Untitled section") }}
+								{{
+									section.label || zone_label(section) || __("Untitled section")
+								}}
 							</span>
 						</div>
 						<div v-if="!is_collapsed(section)" class="pfb-tree-children">
 							<div
-								v-if="zone_of(section) && letterhead"
+								v-if="zone_label(section) && letterhead"
 								class="pfb-tree-row"
 								:class="{ active: letterhead_selected(section) }"
 								role="treeitem"
@@ -403,8 +380,8 @@
 
 <script setup>
 import draggable from "vuedraggable";
+import { is_block } from "../fieldtypes";
 import {
-	BLOCK_FIELDTYPES,
 	DRAG_OPTIONS,
 	clone_plain,
 	freshen_field,
@@ -414,7 +391,7 @@ import {
 	FIELD_PLUCK_KEYS,
 } from "../utils";
 import BlockCard from "./BlockCard.vue";
-import { useStore } from "../stores";
+import { column_of, zone_of, zones } from "../layout";
 import { computed, onMounted, onUnmounted, nextTick, ref, watch, inject } from "vue";
 
 // state
@@ -425,8 +402,8 @@ let raw_templates = ref([]);
 // ── tab definitions ───────────────────────────────────────
 const TAB_STORE_KEY = "pfb_active_tab";
 const tabs = computed(() => [
-	{ id: "layers", label: __("Layers") },
 	{ id: "fields", label: __("Fields") },
+	{ id: "layers", label: __("Layers") },
 	{ id: "blocks", label: __("Blocks") },
 	{ id: "library", label: __("Library") },
 ]);
@@ -434,7 +411,7 @@ const tabs = computed(() => [
 // A stale tab id would render an empty sidebar, so fall back to the first tab
 function restore_tab() {
 	const saved = localStorage.getItem(TAB_STORE_KEY);
-	return tabs.value.some((t) => t.id === saved) ? saved : "layers";
+	return tabs.value.some((t) => t.id === saved) ? saved : tabs.value[0].id;
 }
 let activeTab = ref(restore_tab());
 
@@ -445,7 +422,7 @@ function focus_search() {
 
 // store
 let store = inject("$store");
-let { meta, layout, print_format, letterhead } = useStore();
+let { meta, layout, print_format, letterhead } = store;
 
 // ── blocks tab items ──────────────────────────────────────
 const page_break_block = [
@@ -494,7 +471,7 @@ const draggable_blocks = computed(() => [
 		fieldname: "divider",
 		fieldtype: "Divider",
 		custom: 1,
-		icon: "minus",
+		icon: "separator-horizontal",
 		desc: __("Horizontal rule"),
 	},
 	{
@@ -525,7 +502,7 @@ const draggable_blocks = computed(() => [
 		fieldname: "repeater",
 		fieldtype: "Repeater",
 		custom: 1,
-		icon: "list",
+		icon: "table",
 		desc: __("Child table rows laid out with your own template"),
 		source: "",
 		repeater_columns: [
@@ -570,24 +547,17 @@ function clone_field(df) {
 
 function add_to_layout(df) {
 	const lv = layout.value;
-	const sections = lv?.sections;
-	if (!sections || !sections.length) return;
+	if (!lv) return;
+	const sections = (lv.sections ||= []);
 
 	// If a field is selected, insert right after it in the same column.
 	// Search body sections and header/footer zones so a selected header field
 	// is used as the anchor when inserting from the panel.
 	const selected_field = store.selected_field.value;
-	if (selected_field && !selected_field.remove) {
-		const all_zones = [lv?.header, lv?.footer, ...sections].filter(Boolean);
-		for (const section of all_zones) {
-			for (const column of section.columns) {
-				const idx = column.fields.indexOf(selected_field);
-				if (idx !== -1) {
-					column.fields.splice(idx + 1, 0, clone_field(df));
-					return;
-				}
-			}
-		}
+	const column = selected_field && !selected_field.remove && column_of(lv, selected_field);
+	if (column) {
+		column.fields.splice(column.fields.indexOf(selected_field) + 1, 0, clone_field(df));
+		return;
 	}
 
 	// Otherwise add to the last column of the selected (or last body) section.
@@ -596,8 +566,11 @@ function add_to_layout(df) {
 	const is_valid_target =
 		selected &&
 		(sections.includes(selected) || selected === lv?.header || selected === lv?.footer);
-	const target_section = is_valid_target ? selected : sections.slice(-1)[0];
-	if (!target_section) return;
+	let target_section = is_valid_target ? selected : sections.slice(-1)[0];
+	if (!target_section) {
+		target_section = { label: "", columns: [{ label: "", fields: [] }] };
+		sections.push(target_section);
+	}
 	const last_column = target_section.columns.slice(-1)[0];
 	if (!last_column) return;
 	last_column.fields.push(clone_field(df));
@@ -643,7 +616,7 @@ let known_fieldnames = computed(() => {
 });
 function field_broken(f) {
 	if (f.custom || f.fieldtype === "Field Template" || !f.fieldname) return false;
-	if (BLOCK_FIELDTYPES.has(f.fieldtype)) return false;
+	if (is_block(f)) return false;
 	return !known_fieldnames.value.has(f.fieldname);
 }
 
@@ -669,9 +642,8 @@ function field_icon(f) {
 // the zones are sections too, so the tree lists them alongside the body ones —
 // only their order is fixed, since a header can't become a body section
 let tree_sections = computed({
-	get: () =>
-		[layout.value.header, ...layout.value.sections, layout.value.footer].filter(Boolean),
-	set: (v) => (layout.value.sections = v.filter((s) => !zone_of(s))),
+	get: () => [...zones(layout.value)],
+	set: (v) => (layout.value.sections = v.filter((s) => !zone_of(layout.value, s))),
 });
 
 function letterhead_selected(section) {
@@ -683,11 +655,8 @@ function select_letterhead(section) {
 	store.select_letterhead({ footer: section === layout.value?.footer });
 }
 
-function zone_of(section) {
-	if (section && section === layout.value?.header) return __("Header");
-	if (section && section === layout.value?.footer) return __("Footer");
-	return "";
-}
+const ZONE_LABELS = { header: __("Header"), footer: __("Footer") };
+const zone_label = (section) => ZONE_LABELS[zone_of(layout.value, section)] || "";
 
 let collapsed_nodes = ref(new Set());
 function is_collapsed(node) {
@@ -738,8 +707,8 @@ function add_page_break() {
 let field_groups = computed(() => {
 	const q = search_text.value.toLowerCase();
 
-	// Seed with ID (name) field
-	const groups = [{ label: null, fields: [] }];
+	// the document's own fields sit under its name, the way a section break names its own
+	const groups = [{ label: meta.value.name, fields: [] }];
 	let current = groups[0];
 
 	// Always show ID field first
@@ -851,10 +820,6 @@ let print_templates_list = computed(() => {
 });
 
 // ── computed: misc ─────────────────────────────────────────
-let new_template_link = computed(
-	() => `/app/print-format-field-template/new?document_type=${meta.value?.name || ""}`
-);
-
 // ── lifecycle ──────────────────────────────────────────────
 onMounted(() => {
 	document.addEventListener("keydown", handle_slash_key);
@@ -887,7 +852,7 @@ function handle_slash_key(e) {
 .pfb-sidebar {
 	width: 260px;
 	flex-shrink: 0;
-	height: calc(100vh - var(--pfb-chrome-offset, 95px));
+	height: 100%;
 	display: flex;
 	flex-direction: column;
 	border-right: 1px solid var(--border-color);
@@ -901,8 +866,15 @@ function handle_slash_key(e) {
 }
 
 .es-tabs__list {
-	gap: calc(var(--spacing) * 3);
-	padding-inline: calc(var(--spacing) * 3);
+	height: 44px;
+	box-sizing: border-box;
+	align-items: center;
+	/* the four tabs spread across the panel rather than bunching at the left;
+	   the gap is a floor, so a narrower sidebar closes it up instead of overflowing */
+	justify-content: space-between;
+	gap: calc(var(--spacing) * 2);
+	padding-block: 0;
+	padding-inline: calc(var(--spacing) * 4);
 }
 
 .es-tabs__tab {
@@ -914,25 +886,49 @@ function handle_slash_key(e) {
 .pfb-tab-body {
 	flex: 1;
 	overflow-y: auto;
-	padding: 10px;
-}
-
-/* ── Search (Fields tab) ─────────────────────────────────── */
-.pfb-fields-tab {
+	/* each tab sets its own first-item spacing so all four start 16px under the
+	   tab bar, on the same 16px left grid */
 	padding: 0;
 }
 
+.pfb-blocks-tab {
+	padding-top: 8px;
+}
+
+/* ── Search (Fields tab) ─────────────────────────────────── */
 .pfb-search-wrap {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	padding: 8px 10px;
-	border-bottom: 1px solid var(--border-color);
+	/* the heading below carries its own 16px of top padding, so the field only
+	   needs a little clearance under it */
+	margin: 16px 16px 4px;
+	padding: 6px 8px;
+	border-radius: var(--radius);
+	background: var(--surface-gray-2);
+}
+
+/* the field is a plain fill, so the shortcut badge sits on the panel colour to stay legible */
+.pfb-search-kbd {
+	flex-shrink: 0;
+	font-family: inherit;
+	font-size: var(--text-tiny);
+	color: var(--ink-gray-4);
+	/* a hint, not a control: an outline on the field's own fill, never a white chip */
+	background: transparent;
+	border: 1px solid var(--outline-gray-2);
+	border-radius: 3px;
+	padding: 0 5px;
+	cursor: pointer;
+	line-height: 1.5;
 }
 
 .pfb-search-icon {
 	flex-shrink: 0;
-	color: var(--gray-500);
+	/* frappe icons paint with --icon-stroke, which the desk sets to gray-700;
+	   `color` alone leaves the glyph almost black next to the placeholder */
+	--icon-stroke: var(--ink-gray-4);
+	color: var(--ink-gray-4);
 }
 
 .pfb-search {
@@ -947,51 +943,25 @@ function handle_slash_key(e) {
 }
 
 .pfb-search::placeholder {
-	color: var(--gray-400);
-}
-
-.pfb-search-kbd {
-	flex-shrink: 0;
-	font-family: inherit;
-	font-size: var(--text-tiny);
-	color: var(--gray-400);
-	background: var(--gray-100);
-	border: 1px solid var(--gray-300);
-	border-radius: 3px;
-	padding: 1px 5px;
-	cursor: pointer;
-	line-height: 1.6;
-}
-
-/* ── Fields header ───────────────────────────────────────── */
-.pfb-fields-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 10px 10px 4px;
-}
-
-.pfb-fields-header-title {
-	font-size: var(--text-tiny);
-	font-weight: var(--weight-semibold);
-	color: var(--text-muted);
-}
-
-.pfb-fields-header-sep {
-	margin: 0 4px;
-	opacity: 0.5;
+	color: var(--ink-gray-3);
 }
 
 /* ── Group label ─────────────────────────────────────────── */
 .pfb-group-label {
-	font-size: var(--text-tiny);
+	font-size: var(--text-base);
 	font-weight: var(--weight-semibold);
 	letter-spacing: 0;
-	color: var(--text-muted);
-	padding: 8px 10px 2px;
+	color: var(--text-color);
+	padding: 16px 16px 6px;
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+}
+
+.pfb-group-desc {
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+	padding: 0 16px 4px;
 }
 
 /* ── Field row (Fields tab) ──────────────────────────────── */
@@ -999,30 +969,20 @@ function handle_slash_key(e) {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 7px 10px;
+	/* the design sizes a row at 39px on a 284px panel; 34px keeps the drag target
+	   comfortable here and gives back about four fields per screen */
+	min-height: 34px;
+	/* hover is a pill inset from the panel edge, so the row carries 8px of margin
+	   and 8px of padding and the label still sits on the 16px text grid */
+	margin: 0 8px;
+	padding: 4px 8px;
+	border-radius: var(--radius);
 	font-size: var(--text-sm);
 	cursor: grab;
-	border-bottom: 1px solid var(--gray-100);
-}
-
-.pfb-field-row:last-child {
-	border-bottom: none;
 }
 
 .pfb-field-row:hover {
-	background: var(--gray-50);
-}
-
-.pfb-field-drag {
-	display: flex;
-	align-items: center;
-	color: var(--gray-300);
-	flex-shrink: 0;
-	transition: color 0.1s;
-}
-
-.pfb-field-row:hover .pfb-field-drag {
-	color: var(--gray-500);
+	background: var(--surface-gray-1);
 }
 
 .pfb-field-label {
@@ -1036,7 +996,7 @@ function handle_slash_key(e) {
 
 .pfb-field-type {
 	font-size: var(--text-tiny);
-	color: var(--gray-500);
+	color: var(--ink-gray-4);
 	padding: 2px 6px;
 	white-space: nowrap;
 	flex-shrink: 0;
@@ -1049,37 +1009,46 @@ function handle_slash_key(e) {
 	letter-spacing: 0;
 }
 
-.pfb-label-actions {
-	display: flex;
-	gap: 2px;
-	margin-right: -4px;
-}
-
 /* ── Outline tab (tree) ──────────────────────────────────── */
 .pfb-tree {
-	padding-top: 4px;
+	padding: 12px 8px 0;
 }
 
 .pfb-tree-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	padding: 4px 6px;
+	/* the website builder sizes a layer row by its content, not a fixed height */
+	padding: 4px 8px;
 	border-radius: var(--radius);
 	cursor: pointer;
-	font-size: var(--text-sm);
+	font-size: var(--text-base);
 	user-select: none;
 }
 
-.pfb-tree-row:hover,
 .pfb-tree-row.pfb-tree-hover {
 	outline: 1px solid var(--pfb-accent);
 	outline-offset: -1px;
 }
 
+/* hovering a section or a column rings its whole subtree, the way the website
+   builder's layers do; a field has no subtree, so it rings its own row */
+.pfb-tree-node:has(> .pfb-tree-row:hover),
+.pfb-tree-children > .pfb-tree-row:hover {
+	outline: 1px solid var(--pfb-accent);
+	outline-offset: -1px;
+	border-radius: var(--radius);
+}
+
+/* a section row also carries the canvas-hover ring; inside the subtree ring that
+   second outline reads as a rule under the section's own label */
+.pfb-tree-node:has(> .pfb-tree-row:hover) > .pfb-tree-row.pfb-tree-hover {
+	outline: none;
+}
+
 .pfb-tree-row.active {
-	background: var(--gray-200);
-	color: var(--gray-900);
+	background: var(--surface-gray-3);
+	color: var(--text-color);
 	font-weight: 500;
 }
 
@@ -1093,7 +1062,7 @@ function handle_slash_key(e) {
 	border: none;
 	background: transparent;
 	cursor: pointer;
-	color: var(--gray-500);
+	color: var(--ink-gray-4);
 	flex-shrink: 0;
 	transition: transform 0.12s ease;
 }
@@ -1110,12 +1079,12 @@ function handle_slash_key(e) {
 .pfb-tree-icon {
 	display: flex;
 	align-items: center;
-	color: var(--gray-500);
+	color: var(--ink-gray-4);
 	flex-shrink: 0;
 }
 
 .pfb-tree-row.active .pfb-tree-icon {
-	color: var(--gray-700);
+	color: var(--ink-gray-6);
 }
 
 .pfb-tree-label {
@@ -1132,7 +1101,8 @@ function handle_slash_key(e) {
 }
 
 .pfb-tree-children {
-	margin-left: 18px;
+	/* the website builder indents a level by 24px */
+	margin-left: 24px;
 }
 
 .pfb-tree-fields {
@@ -1150,7 +1120,7 @@ function handle_slash_key(e) {
 	color: var(--text-muted);
 	font-size: var(--text-sm);
 	text-align: center;
-	padding: 16px 8px;
+	padding: 16px;
 }
 
 .pfb-fields-tab .pfb-empty {
@@ -1158,7 +1128,7 @@ function handle_slash_key(e) {
 }
 
 .pfb-field-group {
-	border-bottom: 1px solid var(--gray-100);
+	border-bottom: 1px solid var(--border-color);
 }
 
 .pfb-field-group:last-child {
