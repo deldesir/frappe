@@ -68,7 +68,7 @@
 			frappe.csrf_token = "{{ csrf_token }}";
 
 			frappe._translations_loaded = fetch(
-				`/api/method/frappe.translate.get_boot_translations?v=${frappe.boot.translations_version}&lang=${frappe.boot.lang}`,
+				`${frappe.boot.subpath_prefix || ""}/api/method/frappe.translate.get_boot_translations?v=${frappe.boot.translations_version}&lang=${frappe.boot.lang}`,
 				{
 					credentials: "same-origin",
 					headers: {

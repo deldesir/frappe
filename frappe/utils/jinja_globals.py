@@ -95,12 +95,25 @@ def get_dom_id(seed=None):
 	return "id-" + generate_hash(12)
 
 
+def under_url_prefix(path):
+	"""A root-relative site path spelled under the IIAB sub-path prefix. Assets are served at the
+	root as well and are left alone; so is anything already under the prefix or absolute."""
+	from frappe.utils.data import get_url_prefix
+
+	prefix = get_url_prefix()
+	if not prefix or not isinstance(path, str) or not path.startswith("/") or path.startswith("//"):
+		return path
+	if path.startswith(("/assets/", prefix + "/")):
+		return path
+	return prefix + path
+
+
 def include_script(path, preload=True):
 	"""Get path of bundled script files.
 
 	If preload is specified the path will be added to preload headers so browsers can prefetch
 	assets."""
-	path = bundled_asset(path)
+	path = under_url_prefix(bundled_asset(path))
 
 	if preload:
 		import frappe
@@ -134,7 +147,7 @@ def include_style(path, rtl=None, preload=True):
 
 	If preload is specified the path will be added to preload headers so browsers can prefetch
 	assets."""
-	path = bundled_asset(path)
+	path = under_url_prefix(bundled_asset(path))
 
 	if preload:
 		import frappe

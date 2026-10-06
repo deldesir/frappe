@@ -691,8 +691,11 @@ frappe.router = {
 
 	// IIAB subpath prefix — keeps the SPA router aware of the /erp mount point
 	_subpath_prefix: (function () {
-		// Derive prefix from the current URL at boot time so this file
-		// never needs to hard-code the value.
+		// The server knows the sub-path it is served under (frappe.boot.subpath_prefix, from the
+		// site's URL); the current URL is only the fallback for a page without boot info.
+		if (window.frappe && frappe.boot && typeof frappe.boot.subpath_prefix === "string") {
+			return frappe.boot.subpath_prefix;
+		}
 		var p = window.location.pathname;
 		var parts = p.split("/");
 		var first = parts[1] || "";
