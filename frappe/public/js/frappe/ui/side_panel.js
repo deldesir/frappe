@@ -92,7 +92,9 @@ function render_static_field_value($value_el, df, doc) {
 		}
 		// createElement + innerText so the title can never inject markup.
 		const a = document.createElement("a");
-		a.href = `/app/${frappe.router.slug(link_doctype)}/${encodeURIComponent(raw)}`;
+		a.href = frappe.router.href_with_prefix(
+			`/desk/${frappe.router.slug(link_doctype)}/${encodeURIComponent(raw)}`
+		);
 		a.dataset.doctype = link_doctype;
 		a.dataset.name = raw;
 		a.innerText = frappe.utils.get_link_title(link_doctype, raw) || raw;

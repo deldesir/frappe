@@ -15,11 +15,14 @@ frappe.provide("frappe.ui.sidebar_item");
 // shell twice: `/desk/build` is the Build workspace and its shell is Build, so the prefix would
 // add a segment and no information.
 function in_shell(path, shell) {
-	if (!shell || !path || !path.startsWith("/desk/")) return path;
+	// The href carries the IIAB sub-path prefix; the shell goes in after it, in front of /desk's rest.
+	const prefix = (frappe.router && frappe.router._subpath_prefix) || "";
+	const bare = prefix && path && path.startsWith(prefix + "/") ? path.slice(prefix.length) : path;
+	if (!shell || !bare || !bare.startsWith("/desk/")) return path;
 
 	// The query string is not part of what the shell goes in front of, and leaving it in would
 	// make `/desk/build?x=1` look unlike `/desk/build` and take a prefix it should not.
-	const [route, rest] = split_query(path.slice("/desk/".length));
+	const [route, rest] = split_query(bare.slice("/desk/".length));
 	const slug = frappe.router.shell_slug(shell);
 	if (route === slug || route.startsWith(slug + "/")) return path;
 
@@ -28,7 +31,7 @@ function in_shell(path, shell) {
 	// these URLs bare for the same reason.
 	if (frappe.router.segment_kind(slug) === "doctype") return path;
 
-	return "/desk/" + slug + "/" + route + rest;
+	return prefix + "/desk/" + slug + "/" + route + rest;
 }
 
 function split_query(path) {
@@ -131,7 +134,9 @@ frappe.ui.sidebar_item.get_route = function (item, edit_mode = false, shell = nu
 		return path;
 	}
 
-	return in_shell(path, shell);
+	// Every sidebar href is spelled under the IIAB sub-path prefix, the way the address bar is:
+	// the highlight is a string comparison between the two.
+	return in_shell(frappe.router.href_with_prefix(path), shell);
 };
 
 frappe.ui.sidebar_item.TypeLink = class SidebarItem {

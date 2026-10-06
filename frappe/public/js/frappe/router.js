@@ -337,7 +337,7 @@ frappe.router = {
 		history.replaceState(
 			history.state,
 			"",
-			"/desk/" + segments.join("/") + window.location.search + window.location.hash
+			this.desk_path(segments.join("/")) + window.location.search + window.location.hash
 		);
 	},
 
@@ -577,7 +577,11 @@ frappe.router = {
 		const on_system_page = this.page_info_for(this.current_route || [])?.system_page;
 		if (!on_system_page && shell === frappe.app?.sidebar?.current_module) return path;
 
-		return "/desk/" + this.shell_slug(shell) + path.slice("/desk".length);
+		// `path` comes from `make_url`, so it carries the sub-path prefix: take everything off the
+		// front and spell the result once, under the prefix.
+		const rest = this.strip_prefix(path);
+		const slug = this.shell_slug(shell);
+		return this.desk_path(rest ? slug + "/" + rest : slug);
 	},
 
 	get_route_from_arguments(route) {
@@ -687,8 +691,11 @@ frappe.router = {
 
 	// IIAB subpath prefix — keeps the SPA router aware of the /erp mount point
 	_subpath_prefix: (function () {
-		// Derive prefix from the current URL at boot time so this file
-		// never needs to hard-code the value.
+		// The server knows the sub-path it is served under (frappe.boot.subpath_prefix, from the
+		// site's URL); the current URL is only the fallback for a page without boot info.
+		if (window.frappe && frappe.boot && typeof frappe.boot.subpath_prefix === "string") {
+			return frappe.boot.subpath_prefix;
+		}
 		var p = window.location.pathname;
 		var parts = p.split("/");
 		var first = parts[1] || "";
@@ -697,6 +704,25 @@ frappe.router = {
 		}
 		return "/" + first;
 	})(),
+
+	// A desk path spelled under the IIAB sub-path prefix: `desk_path("accounts/private/x")` is
+	// `/erp/desk/accounts/private/x`. Everything that writes the address bar itself, rather than
+	// through `push_state`, has to spell the path this way or the prefix falls out of the URL.
+	desk_path(rest = "") {
+		const prefix = this._subpath_prefix || "";
+		rest = (rest || "").replace(/^\/+/, "");
+		return rest ? prefix + "/desk/" + rest : prefix + "/desk";
+	},
+
+	// A raw `/desk/...` or `/app/...` href spelled under the prefix. Left alone when it already
+	// carries it or points somewhere else.
+	href_with_prefix(href) {
+		const prefix = this._subpath_prefix || "";
+		if (!prefix || typeof href !== "string") return href;
+		if (href === prefix || href.startsWith(prefix + "/")) return href;
+		if (href.startsWith("/desk") || href.startsWith("/app")) return prefix + href;
+		return href;
+	},
 
 	// This writes no shell into the path, and `write_shell_into_url` puts it there once the route
 	// has been parsed. Doing it here looks tidier and cannot be made correct: `set_route` also
@@ -980,7 +1006,7 @@ frappe.router = {
 		// the Workflow named `item`, not the Item list (see `take_shell_from`). The route keeps
 		// no shell in its URL, and the sidebar stays on the shell on screen until a reload.
 		const unwritable = !names_itself && this.segment_kind(slug) === "doctype";
-		const path = "/desk/" + (names_itself || unwritable ? rest : slug + "/" + rest);
+		const path = this.desk_path(names_itself || unwritable ? rest : slug + "/" + rest);
 		if (path === window.location.pathname) return;
 
 		// `path_on_screen` strips one segment whenever this is set, so it has to say what the URL
@@ -1008,7 +1034,7 @@ frappe.router = {
 		history.replaceState(
 			history.state,
 			"",
-			"/desk/" + rest + window.location.search + window.location.hash
+			this.desk_path(rest) + window.location.search + window.location.hash
 		);
 	},
 

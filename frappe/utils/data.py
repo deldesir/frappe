@@ -2041,6 +2041,16 @@ def get_url(
 	return urljoin(host_name, uri) if uri else host_name
 
 
+def get_url_prefix() -> str:
+	"""The path the site is served under: "/erp" when its URL is https://host/erp, "" at the root.
+
+	This is the IIAB sub-path; every root-relative path the site spells for a browser goes
+	behind it (see `frappe.boot.subpath_prefix` and the desk router's `_subpath_prefix`)."""
+	from urllib.parse import urlparse
+
+	return urlparse(get_url()).path.rstrip("/")
+
+
 def get_host_name_from_request() -> str:
 	"""Return the hostname (`request.host`) from the request headers."""
 	if hasattr(frappe.local, "request") and frappe.local.request and frappe.local.request.host:

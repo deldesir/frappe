@@ -343,7 +343,7 @@ frappe.views.FileView = class FileView extends frappe.views.ListView {
 						acc += "/" + curr;
 					}
 					return acc;
-				}, "/desk/file/view");
+				}, frappe.router.href_with_prefix("/desk/file/view"));
 
 				return `<a href="${frappe.utils.escape_html(route)}">${title}</a>`;
 			})
@@ -386,7 +386,7 @@ frappe.views.FileView = class FileView extends frappe.views.ListView {
 		if (!file.is_folder) return this.get_form_link(file);
 
 		const folder_path = file.name.split("/").map(encodeURIComponent).join("/");
-		return "/desk/file/view/" + folder_path;
+		return frappe.router.href_with_prefix("/desk/file/view/" + folder_path);
 	}
 
 	get_creation_date(file) {

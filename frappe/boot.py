@@ -49,6 +49,8 @@ def get_bootinfo():
 
 	# system info
 	bootinfo.sitename = frappe.local.site
+	# IIAB sub-path: inline template code runs before the desk bundle and spells its own URLs
+	bootinfo.subpath_prefix = frappe.utils.get_url_prefix()
 	bootinfo.sysdefaults = frappe.defaults.get_defaults()
 	bootinfo.sysdefaults["setup_complete"] = frappe.is_setup_complete()
 	if not bootinfo.sysdefaults["setup_complete"]:
