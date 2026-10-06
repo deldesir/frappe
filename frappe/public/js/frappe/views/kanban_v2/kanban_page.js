@@ -1556,7 +1556,9 @@ frappe.views.KanbanV2Page = class KanbanV2Page {
 				icon: "external-link",
 				onclick: () =>
 					window.open(
-						`/app/${frappe.router.slug(this.doctype)}/${encodeURIComponent(card.name)}`
+						frappe.router.href_with_prefix(
+							`/desk/${frappe.router.slug(this.doctype)}/${encodeURIComponent(card.name)}`
+						)
 					),
 			},
 			{

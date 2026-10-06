@@ -585,9 +585,9 @@ frappe.views.KanbanView.get_kanbans = function (doctype) {
 		if (kanban_boards) {
 			frappe.views._kanban_engine_cache = frappe.views._kanban_engine_cache || {};
 			kanban_boards.forEach((board) => {
-				let route = `/desk/${frappe.router.slug(board.reference_doctype)}/view/kanban/${
-					board.name
-				}`;
+				let route = frappe.router.href_with_prefix(
+					`/desk/${frappe.router.slug(board.reference_doctype)}/view/kanban/${board.name}`
+				);
 				kanbans.push({ name: board.name, route: route });
 				// Prime the engine cache so switching to this board picks the right
 				// UI without another round-trip (see ListFactory.get_kanban_engine).

@@ -22,7 +22,7 @@ frappe.ui.Dock = class Dock {
 			"Apps"
 		)}">
 			<div class="dock-logo">
-				<a class="shell-header" href="/desk">
+				<a class="shell-header" href="${frappe.router.href_with_prefix("/desk")}">
 					<div class="header-logo"></div>
 					<div class="title-container">
 						<div class="header-title"></div>

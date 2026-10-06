@@ -380,7 +380,7 @@ frappe.ui.Sidebar = class Sidebar {
 							name: "my-space",
 							label: __("My Space"),
 							icon: "user",
-							href: "/desk/private",
+							href: frappe.router.href_with_prefix("/desk/private"),
 							condition: () => !!frappe.boot.desk_settings.show_my_space,
 						},
 						{

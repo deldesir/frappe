@@ -48,7 +48,8 @@ function breadcrumbs_html(opts = {}) {
 	const crumbs = items
 		.map((item, i) => {
 			const last = i === items.length - 1;
-			const href = safe_href(item.href, "breadcrumbs");
+			let href = safe_href(item.href, "breadcrumbs");
+			if (href && frappe.router?.href_with_prefix) href = frappe.router.href_with_prefix(href);
 			// no label span when there is no label — an empty span is still a
 			// flex item and would get its own share of the gap
 			const label = item.label

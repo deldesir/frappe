@@ -131,10 +131,12 @@ export const useStore = defineStore("workflow-builder-store", () => {
 
 	function setup_breadcrumbs() {
 		frappe.pages["workflow-builder"]?.page?.set_breadcrumbs([
-			{ label: __("Workflow"), href: "/desk/workflow" },
+			{ label: __("Workflow"), href: frappe.router.href_with_prefix("/desk/workflow") },
 			{
 				label: __(workflow_name.value),
-				href: `/desk/workflow/${encodeURIComponent(workflow_name.value)}`,
+				href: frappe.router.href_with_prefix(
+					`/desk/workflow/${encodeURIComponent(workflow_name.value)}`
+				),
 			},
 			{ label: __("Workflow Builder") },
 		]);
