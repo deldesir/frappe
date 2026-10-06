@@ -14,6 +14,7 @@ from frappe import STANDARD_USERS, _, msgprint, throw
 from frappe.apps import get_default_path
 from frappe.auth import MAX_PASSWORD_SIZE
 from frappe.core.doctype.user_type.user_type import user_linked_with_permission_on_doctype
+from frappe.database import savepoint
 from frappe.desk.doctype.notification_settings.notification_settings import (
 	create_notification_settings,
 	toggle_notifications,
@@ -22,7 +23,8 @@ from frappe.desk.notifications import clear_notifications
 from frappe.model.document import Document, get_controller
 from frappe.query_builder import DocType, Table
 from frappe.rate_limiter import rate_limit
-from frappe.sessions import clear_sessions
+from frappe.sessions import clear_sessions, hash_sid
+from frappe.twofactor import should_run_2fa
 from frappe.utils import (
 	cint,
 	escape_html,
@@ -53,6 +55,8 @@ desk_properties = (
 	"timeline",
 	"dashboard",
 	"report_split_view",
+	"show_my_space",
+	"dock_mode",
 )
 
 
@@ -90,6 +94,7 @@ class User(Document):
 		defaults: DF.Table[DefaultValue]
 		desk_theme: DF.Literal["Light", "Dark", "Automatic"]
 		document_follow_frequency: DF.Literal["Hourly", "Daily", "Weekly"]
+		dock_mode: DF.Literal["Floating", "Pinned"]
 		document_follow_notify: DF.Check
 		email: DF.Data
 		email_signature: DF.TextEditor | None
@@ -136,8 +141,10 @@ class User(Document):
 		roles: DF.Table[HasRole]
 		search_bar: DF.Check
 		send_me_a_copy: DF.Check
+		send_read_receipt: DF.Check
 		send_welcome_email: DF.Check
 		show_absolute_datetime_in_timeline: DF.Check
+		show_my_space: DF.Check
 		simultaneous_sessions: DF.Int
 		social_logins: DF.Table[UserSocialLogin]
 		thread_notify: DF.Check
@@ -166,22 +173,24 @@ class User(Document):
 			.where(sessions.user == self.name)
 		).run(as_dict=True)
 
-		def mask(sid: str):
-			return sid[:4] + "*" * 10
+		def mask(sid_hash: str):
+			return sid_hash[:4] + "*" * 10
+
+		# `sessions.sid` is the stored hash, so compare against the hash of the current sid
+		current_sid_hash = hash_sid(frappe.session.sid)
 
 		session_docs = []
 		for session in sessions_data:
 			data = frappe.parse_json(session.sessiondata)
-			sid_hash = sha256_hash(session.sid)
 			session_docs.append(
 				{
-					"name": sid_hash,
-					"id": mask(sid_hash),
+					"name": session.sid,
+					"id": mask(session.sid),
 					"owner": session.user,
 					"modified_by": session.user,
 					"ip_address": data.session_ip,
 					"last_updated": data.last_updated,
-					"is_current": session.sid == frappe.session.sid,
+					"is_current": session.sid == current_sid_hash,
 					"session_created": data.creation,
 					"user_agent": data.user_agent,
 				}
@@ -288,11 +297,7 @@ class User(Document):
 		"""This handles old role_profile_name field if programatically set.
 
 		This behaviour will be removed in future versions."""
-		if not self.role_profiles:
-			self.role_profile_name = None
-			return
-
-		if not self.role_profile_name:
+		if not self.role_profile_name or not self.has_value_changed("role_profile_name"):
 			return
 
 		current_role_profiles = {r.role_profile for r in self.role_profiles}
@@ -1033,6 +1038,12 @@ def update_password(
 
 	user_doc.validate_reset_password()
 
+	frappe.db.set_value("User", user, "last_password_reset_date", today())
+	frappe.db.set_value("User", user, "reset_password_key", "")
+
+	if key and should_run_2fa(user):
+		return "/login"
+
 	# get redirect url from cache
 	redirect_to = frappe.cache.hget("redirect_after_login", user)
 	if redirect_to:
@@ -1040,9 +1051,6 @@ def update_password(
 		frappe.cache.hdel("redirect_after_login", user)
 
 	frappe.local.login_manager.login_as(user)
-
-	frappe.db.set_value("User", user, "last_password_reset_date", today())
-	frappe.db.set_value("User", user, "reset_password_key", "")
 
 	if user_doc.user_type == "System User":
 		return get_default_path() or "/desk"
@@ -1465,7 +1473,7 @@ def create_contact(user, ignore_links=False, ignore_mandatory=False):
 
 	contact_name = get_contact_name(user.email)
 	if not contact_name:
-		try:
+		with savepoint(catch=frappe.DuplicateEntryError):
 			contact = frappe.get_doc(
 				{
 					"doctype": "Contact",
@@ -1488,8 +1496,6 @@ def create_contact(user, ignore_links=False, ignore_mandatory=False):
 			contact.insert(
 				ignore_permissions=True, ignore_links=ignore_links, ignore_mandatory=ignore_mandatory
 			)
-		except frappe.DuplicateEntryError:
-			pass
 	else:
 		try:
 			contact = frappe.get_doc("Contact", contact_name)
@@ -1610,12 +1616,13 @@ def clear_session(sid_hash: str):
 	from frappe.sessions import delete_session
 
 	sessions = frappe.qb.DocType("Sessions")
-	sessions_data = (
-		frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == frappe.session.user)
+	owned = (
+		frappe.qb.from_(sessions)
+		.select(sessions.sid)
+		.where(sessions.user == frappe.session.user)
+		.where(sessions.sid == sid_hash)
 	).run(pluck=True)
 
-	for session in sessions_data:
-		if sha256_hash(session) == sid_hash:
-			delete_session(sid=session, reason="Force Logged out by the user", user=frappe.session.user)
-			frappe.toast(_("Successfully signed out"))
-			return
+	if owned:
+		delete_session(sid_hash=owned[0], reason="Force Logged out by the user", user=frappe.session.user)
+		frappe.toast(_("Successfully signed out"))
