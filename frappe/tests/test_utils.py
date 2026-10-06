@@ -52,6 +52,7 @@ from frappe.utils.change_log import (
 	check_for_update,
 	get_source_url,
 	parse_github_url,
+	parse_latest_non_beta_release,
 )
 from frappe.utils.data import (
 	add_to_date,
@@ -1442,6 +1443,48 @@ class TestLinkTitle(IntegrationTestCase):
 
 		prop_setter.delete()
 
+	def test_link_title_without_read_permission(self):
+		"""
+		Test that a link to a document the user cannot read returns the docname without raising
+		"""
+		prop_setter = frappe.get_doc(
+			{
+				"doctype": "Property Setter",
+				"doc_type": "ToDo",
+				"property": "show_title_field_in_link",
+				"property_type": "Check",
+				"doctype_or_field": "DocType",
+				"value": "1",
+			}
+		).insert()
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"user_type": "Website User",
+				"email": "arjun.nair@example.com",
+				"send_welcome_email": 0,
+				"first_name": "Arjun",
+			}
+		).insert(ignore_permissions=True)
+
+		todo = frappe.get_doc(
+			{"doctype": "ToDo", "description": "Renew the Contoso support contract"}
+		).insert()
+
+		from frappe.desk.search import get_link_title
+
+		self.assertEqual(get_link_title("ToDo", todo.name), todo.description)
+
+		frappe.clear_messages()
+		with self.set_user(user.name):
+			self.assertEqual(get_link_title("ToDo", todo.name), todo.name)
+		self.assertEqual(frappe.get_message_log(), [])
+
+		todo.delete()
+		user.delete()
+		prop_setter.delete()
+
 
 class TestAppParser(MockedRequestTestCase):
 	def test_app_name_parser(self):
@@ -1754,6 +1797,21 @@ class TestTBSanitization(IntegrationTestCase):
 
 		self.assertIn("should_be_visible", traceback)
 
+	def test_sanitization_hides_object_attributes(self):
+		class Connection:
+			def __init__(self):
+				self.password = "should_not_leak"
+
+		try:
+			connection = Connection()  # noqa: F841
+			raise Exception
+		except Exception:
+			with patch.dict(frappe.conf, {"developer_mode": 1}):
+				traceback = frappe.get_traceback(with_context=True)
+
+		self.assertIn("connection =", traceback)
+		self.assertNotIn("should_not_leak", traceback)
+
 	def test_get_traceback_with_context_only_active_in_developer_mode(self):
 		def boom():
 			marker = "visible-marker"  # noqa: F841
@@ -1931,6 +1989,28 @@ class TestArgumentTypingValidations(IntegrationTestCase):
 
 
 class TestChangeLog(IntegrationTestCase):
+	def test_parse_latest_non_beta_release_skips_invalid_tags(self):
+		from semantic_version import Version
+
+		current_version = Version("16.28.0")
+		self.assertEqual(
+			parse_latest_non_beta_release(
+				[
+					{"tag_name": "v14-baseline"},
+					{"tag_name": "v16.29.0"},
+					{"tag_name": "v16.30.0", "prerelease": True},
+				],
+				current_version,
+			),
+			"16.29.0",
+		)
+		self.assertIsNone(parse_latest_non_beta_release([{"tag_name": "v14-baseline"}], current_version))
+		self.assertEqual(
+			parse_latest_non_beta_release([{"tag_name": "v16.29.0-dev"}], current_version),
+			"16.29.0-dev",
+		)
+		self.assertIsNone(parse_latest_non_beta_release([{"tag_name": "vv16.29.0"}], current_version))
+
 	def test_get_remote_url(self):
 		self.assertIsInstance(get_source_url("frappe"), str)
 

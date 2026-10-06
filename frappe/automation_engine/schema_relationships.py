@@ -25,6 +25,7 @@ from frappe.utils.caching import request_cache
 IGNORED_DOCTYPES = {
 	"Access Log",
 	"Activity Log",
+	"Automation Run",
 	"Background Task",
 	"Comment",
 	"Communication Link",
@@ -209,8 +210,9 @@ def _incoming(source_doctype) -> list[dict]:
 	for doctype, link in (get_linked_fields(source_doctype) or {}).items():
 		if not _is_queryable(doctype):
 			continue
-		for fieldname in link.get("fieldname") or []:
-			yield _incoming_definition(doctype, fieldname, link.get("child_doctype"))
+		for field_link in [*link.get("child_links", []), link]:
+			for fieldname in field_link.get("fieldname") or []:
+				yield _incoming_definition(doctype, fieldname, field_link.get("child_doctype"))
 
 
 def _incoming_definition(doctype, fieldname, child_doctype) -> dict:

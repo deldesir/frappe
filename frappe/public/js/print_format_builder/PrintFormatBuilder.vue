@@ -43,45 +43,31 @@
 						@click="$store.redo()"
 						v-html="frappe.utils.icon('redo-2', 'sm')"
 					></button>
-					<div ref="zoom_ref" class="canvas-zoom-control select-group-btn">
-						<button
-							type="button"
-							class="es-button canvas-zoom-trigger"
-							data-variant="subtle"
-							data-size="sm"
-							:title="__('Zoom')"
-							:aria-expanded="zoom_open"
-							@click="zoom_open = !zoom_open"
-						>
-							<span class="es-button__label">{{ canvas_zoom }}%</span>
-							<span v-html="frappe.utils.icon('chevron-down', 'xs')"></span>
-						</button>
-						<ul
-							v-if="zoom_open"
-							class="dropdown-menu dropdown-menu-right show canvas-zoom-menu"
-						>
-							<li v-for="z in ZOOM_LEVELS" :key="z">
-								<a class="dropdown-item" href="#" @click.prevent="set_zoom(z)">
-									<span>{{ z }}%</span>
-									<span
-										class="tick-icon"
-										:class="{ selected: z === canvas_zoom }"
-										v-html="frappe.utils.icon('check', 'xs')"
-									></span>
-								</a>
-							</li>
-						</ul>
-					</div>
+					<button
+						ref="zoom_ref"
+						type="button"
+						class="es-button canvas-zoom-trigger"
+						data-variant="subtle"
+						data-size="sm"
+						:title="__('Zoom')"
+					>
+						<span class="es-button__label">{{ canvas_zoom }}%</span>
+						<span v-html="frappe.utils.icon('chevron-down', 'xs')"></span>
+					</button>
 				</div>
 			</div>
 			<div v-if="$store.versions.viewing.value" class="pfb-viewing-banner">
 				<span v-html="frappe.utils.icon('rotate-ccw-clock', 'sm')"></span>
 				<span>
 					{{
-						__("Viewing {0} ({1}). Editing is off.", [
-							$store.versions.viewing.value.label,
-							$store.versions.viewing.value.when,
-						])
+						$store.versions.viewing.value.when
+							? __("Viewing {0} ({1}). Editing is off.", [
+									$store.versions.viewing.value.label,
+									$store.versions.viewing.value.when,
+							  ])
+							: __("Viewing {0}. Editing is off.", [
+									$store.versions.viewing.value.label,
+							  ])
 					}}
 				</span>
 				<button
@@ -94,6 +80,7 @@
 				</button>
 			</div>
 			<div
+				ref="canvas_ref"
 				class="print-format-container"
 				:class="{
 					'pfb-marquee-dragging': marquee_dragging,
@@ -113,7 +100,6 @@
 		</div>
 		<FieldInspector v-if="!$store.needs_setup.value" />
 		<Preview v-if="show_preview" @close="show_preview = false" />
-		<ContextMenu />
 		<Teleport to="body">
 			<div
 				v-if="marquee"
@@ -135,12 +121,11 @@ import PrintFormatSetup from "./components/editor/PrintFormatSetup.vue";
 import Preview from "./components/Preview.vue";
 import PrintFormatControls from "./components/PrintFormatControls.vue";
 import FieldInspector from "./components/inspector/FieldInspector.vue";
-import ContextMenu from "./components/editor/ContextMenu.vue";
 import DeskControl from "./components/DeskControl.vue";
 import { getStore } from "./stores";
 import { field_uid } from "./utils";
 import { section_of } from "./layout";
-import { computed, ref, onMounted, onUnmounted, provide, watch } from "vue";
+import { computed, nextTick, ref, onMounted, onUnmounted, provide, watch } from "vue";
 
 const props = defineProps(["print_format_name"]);
 
@@ -150,8 +135,26 @@ const ZOOM_LEVELS = [50, 60, 70, 80, 90, 100, 125, 150];
 let show_preview = ref(false);
 let no_records = ref(false);
 let canvas_zoom = ref(nearest_zoom(parseInt(localStorage.getItem(ZOOM_KEY)) || 100));
-let zoom_open = ref(false);
+let canvas_ref = ref(null);
 let zoom_ref = ref(null);
+let zoom_dropdown = null;
+
+watch(zoom_ref, (el) => {
+	zoom_dropdown?.destroy();
+	zoom_dropdown = null;
+	if (!el) return;
+	frappe.ui.dropdown({
+		trigger: el,
+		align: "end",
+		options: () =>
+			ZOOM_LEVELS.map((z) => ({
+				label: `${z}%`,
+				selected: z === canvas_zoom.value,
+				onclick: () => set_zoom(z),
+			})),
+	});
+	zoom_dropdown = $(el).data("es-dropdown");
+});
 
 const $store = getStore(props.print_format_name);
 
@@ -178,8 +181,20 @@ watch(
 
 function restore_viewed() {
 	const v = $store.versions.viewing.value;
-	if (v.published) $store.draft.discard();
-	else $store.versions.restore(v.name);
+	if (v.published) {
+		frappe.confirm(
+			__("Discard your unapplied changes and go back to what this format prints?"),
+			() => $store.draft.discard()
+		);
+		return;
+	}
+	frappe.confirm(
+		__(
+			"Replace your current draft with {0}? Nothing prints differently until you Save & Apply.",
+			[frappe.utils.bold(v.label)]
+		),
+		() => $store.versions.restore(v.name)
+	);
 }
 
 const SETTINGS_DOCTYPE = "Print Settings";
@@ -209,6 +224,7 @@ async function open_print_settings() {
 					fieldname: values,
 				})
 				.then(() => {
+					Object.assign(doc, values);
 					dialog.hide();
 					frappe.show_alert({
 						message: __("Print Settings updated"),
@@ -247,7 +263,7 @@ const MARQUEE_THRESHOLD = 4;
 const MARQUEE_IGNORE =
 	".field--preview, .field--chip, button, input, textarea, select, a, [contenteditable]," +
 	" .section-toolbar, .drag-handle, .col-width-handle," +
-	" .section-preview-actions, .empty-drop-zone, .canvas-toolbar";
+	" .empty-drop-zone, .canvas-toolbar";
 
 function on_canvas_pointerdown(e) {
 	if (e.button !== 0 || e.target.closest(MARQUEE_IGNORE)) return;
@@ -404,6 +420,19 @@ function handle_keydown(e) {
 		}
 	}
 
+	if (
+		e.key.startsWith("Arrow") &&
+		!(e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) &&
+		!is_typing_context() &&
+		!document.activeElement?.closest(
+			"select, [role=menu], [role=listbox], [role=tablist], [role=radiogroup]"
+		) &&
+		!document.querySelector("[role=menu]")
+	) {
+		if ($store.navigate(e.key)) e.preventDefault();
+		return;
+	}
+
 	if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 		if (is_typing_context()) return;
 		if (!$store.selected_field.value && !$store.selected_section.value) return;
@@ -472,7 +501,6 @@ function nearest_zoom(value) {
 
 function set_zoom(value) {
 	canvas_zoom.value = value;
-	zoom_open.value = false;
 	localStorage.setItem(ZOOM_KEY, value);
 }
 
@@ -490,11 +518,30 @@ function reset_zoom() {
 	set_zoom(100);
 }
 
-function close_zoom_on_outside(e) {
-	if (zoom_open.value && zoom_ref.value && !zoom_ref.value.contains(e.target)) {
-		zoom_open.value = false;
-	}
+function fit_zoom_to_canvas() {
+	const page = canvas_ref.value?.querySelector(".print-format-main");
+	if (!page || localStorage.getItem(ZOOM_KEY)) return;
+	const page_width = page.getBoundingClientRect().width / (canvas_zoom.value / 100);
+	const style = getComputedStyle(canvas_ref.value);
+	const room =
+		canvas_ref.value.clientWidth -
+		parseFloat(style.paddingLeft) -
+		parseFloat(style.paddingRight);
+	const fits = ZOOM_LEVELS.filter((z) => (page_width * z) / 100 <= room);
+	canvas_zoom.value = fits.length ? Math.min(100, fits[fits.length - 1]) : ZOOM_LEVELS[0];
 }
+
+const canvas_resize = new ResizeObserver(fit_zoom_to_canvas);
+function observe_canvas() {
+	if (!canvas_ref.value) return;
+	canvas_resize.observe(canvas_ref.value);
+	const page = canvas_ref.value.querySelector(".print-format-main");
+	if (page) canvas_resize.observe(page);
+}
+watch(
+	() => $store.needs_setup.value,
+	(needs_setup) => !needs_setup && nextTick(observe_canvas)
+);
 
 const is_printable_docstatus = (docstatus) =>
 	frappe.model.can_print_docstatus($store.meta.value?.name, docstatus);
@@ -520,6 +567,16 @@ const doc_picker_df = computed(() => {
 function pick_initial_doc() {
 	const st = $store;
 	const meta = st.meta.value;
+	if (!frappe.perm.has_perm(meta?.name, 0, "read")) {
+		no_records.value = true;
+		frappe.show_alert({
+			message: __("You cannot read {0} documents, so there is nothing to preview", [
+				__(meta?.name),
+			]),
+			indicator: "orange",
+		});
+		return;
+	}
 	const saved = st.persisted_preview_doc_name();
 	const auto_select = () =>
 		frappe.db
@@ -546,16 +603,21 @@ watch(doc_picker_df, (df, was) => df && !was && pick_initial_doc());
 
 function warn_before_unload(e) {
 	const st = $store;
-	if (st.dirty.value || st.draft.saving_count.value > 0 || st.draft.save_failed.value)
+	if (
+		st.dirty.value ||
+		st.draft.saving_count.value > 0 ||
+		st.draft.save_failed.value ||
+		st.draft.letterhead_unsaved.value
+	)
 		e.preventDefault();
 }
 
 onMounted(() => {
 	document.addEventListener("keydown", handle_keydown);
-	document.addEventListener("pointerdown", close_zoom_on_outside);
 	window.addEventListener("beforeunload", warn_before_unload);
 
 	$store.fetch().then(() => {
+		nextTick(observe_canvas);
 		if ($store.print_format.value?.custom_format) {
 			frappe.set_route("Form", "Print Format", props.print_format_name);
 			return;
@@ -568,8 +630,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+	canvas_resize.disconnect();
 	document.removeEventListener("keydown", handle_keydown);
-	document.removeEventListener("pointerdown", close_zoom_on_outside);
+	zoom_dropdown?.destroy();
 	window.removeEventListener("beforeunload", warn_before_unload);
 	window.removeEventListener("pointermove", on_canvas_pointermove);
 	window.removeEventListener("pointerup", on_canvas_pointerup);
@@ -593,7 +656,6 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
    just noise on top of every highlighted block — the bulk panel drives actions
    instead. Hide them everywhere at once from the one multi-select flag. */
 .builder-root.pfb-multi-select :deep(.field-actions),
-.builder-root.pfb-multi-select :deep(.section-preview-actions),
 .builder-root.pfb-multi-select :deep(.section-toolbar-right) {
 	display: none;
 }
@@ -645,28 +707,7 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 	gap: 6px;
 }
 
-/* ── Zoom control ────────────────────────────────────────── */
-.canvas-zoom-control {
-	position: relative;
-}
-
 .canvas-zoom-trigger {
-	font-variant-numeric: tabular-nums;
-}
-
-.canvas-zoom-menu {
-	position: absolute;
-	top: calc(100% + 4px);
-	right: 0;
-	left: auto;
-	min-width: 96px;
-}
-
-.canvas-zoom-menu .dropdown-item {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
 	font-variant-numeric: tabular-nums;
 }
 
@@ -678,7 +719,7 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 	padding: 6px 12px;
 	font-size: var(--text-sm);
 	background: var(--surface-amber-2);
-	color: var(--ink-amber-8);
+	color: var(--ink-amber-9);
 }
 
 .pfb-viewing-restore {
@@ -691,9 +732,8 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 
 .print-format-container {
 	flex: 1;
-	overflow-y: auto;
-	padding-top: 0.5rem;
-	padding-bottom: 4rem;
+	overflow: auto;
+	padding: 0.5rem 1rem 4rem;
 }
 
 .print-format-container :deep(.print-format-main) {

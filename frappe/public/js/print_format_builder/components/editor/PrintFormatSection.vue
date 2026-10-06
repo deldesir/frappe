@@ -1,5 +1,6 @@
 <template>
 	<div
+		ref="root"
 		class="print-format-section-container"
 		data-pfb-section
 		:data-section-uid="field_uid(section)"
@@ -12,18 +13,9 @@
 			'section--preview': !!preview_doc,
 		}"
 		@click.stop="select_section"
-		@contextmenu="on_context_menu"
 		@mouseenter="store.hovered_section.value = section"
 		@mouseleave="store.hovered_section.value = null"
 	>
-		<!-- Top-right actions pill shown on hover in clean-preview (toolbar is hidden) -->
-		<div v-if="!is_header" class="section-preview-actions">
-			<div
-				class="drag-handle section-drag-handle"
-				v-html="frappe.utils.icon('grip', 'xs')"
-			></div>
-			<SectionActions :section="section" size="xs" @remove="remove_section" />
-		</div>
 		<div
 			class="print-format-section"
 			:class="{
@@ -139,7 +131,7 @@
 		<div v-if="show_spacing_handles" class="pfb-section-chrome" :style="section_chrome_style">
 			<SectionSpacingHandles :section="section" type="margin" />
 			<SectionSpacingHandles :section="section" type="padding" />
-			<SectionRadiusHandle :section="section" />
+			<SectionRadiusHandle :target="section" />
 		</div>
 		<div class="page-break-indicator" v-if="section.page_break">
 			<span>— {{ __("Page Break") }} —</span>
@@ -163,8 +155,9 @@ import Field from "./Field.vue";
 import SectionActions from "./SectionActions.vue";
 import SectionSpacingHandles from "./SectionSpacingHandles.vue";
 import SectionRadiusHandle from "./SectionRadiusHandle.vue";
-import { computed, inject } from "vue";
+import { computed, inject, onMounted, onUnmounted, ref } from "vue";
 import { useColumnResize } from "../../composables/useColumnResize";
+import { section_menu_options } from "../../composables/useNodeMenu";
 import { always_has_content } from "../../fieldtypes";
 import {
 	DRAG_OPTIONS,
@@ -173,7 +166,6 @@ import {
 	setDragging,
 	field_uid,
 } from "../../utils";
-import { useContextMenu } from "../../composables/useContextMenu";
 
 const props = defineProps(["section", "is_header", "zone"]);
 
@@ -341,40 +333,18 @@ function remove_section() {
 	store.remove_section(props.section);
 }
 
-const { open: open_context_menu } = useContextMenu();
-
-function on_context_menu(e) {
-	select_section();
-	open_context_menu(e, [
-		!props.is_header && {
-			label: __("Copy section"),
-			icon: "copy",
-			action: () => store.copy_section(props.section),
-		},
-		!props.is_header && {
-			label: __("Duplicate section"),
-			icon: "copy-plus",
-			action: () => store.duplicate_section(props.section),
-		},
-		!props.is_header && {
-			label: __("Save as snippet"),
-			icon: "bookmark-plus",
-			action: () => store.prompt_snippet(props.section, "Section"),
-		},
-		store.clipboard.value && {
-			label: __("Paste"),
-			icon: "clipboard-paste",
-			action: () => store.paste_clipboard(),
-		},
-		!props.is_header && { divider: true },
-		!props.is_header && {
-			label: __("Delete section"),
-			icon: "trash",
-			danger: true,
-			action: remove_section,
-		},
-	]);
-}
+const root = ref(null);
+let context_menu = null;
+onMounted(() => {
+	context_menu = new frappe.ui.ContextMenu({
+		target: root.value,
+		options: () =>
+			section_menu_options(store, props.section, { condition: () => !props.is_header }),
+		empty_text: __("Nothing to paste"),
+		on_open: () => select_section(),
+	});
+});
+onUnmounted(() => context_menu?.destroy());
 
 function remove_column(index) {
 	if (props.section.columns.length <= 1) return;
@@ -388,6 +358,7 @@ function remove_column(index) {
 	/* flow-root keeps the section's own margin inside this box, so the spacing
 	   handles can be positioned against it */
 	display: flow-root;
+	scroll-margin-top: 4rem;
 }
 
 .print-format-section-container:not(:last-child) {
@@ -633,24 +604,6 @@ function remove_column(index) {
 	margin: 0.25rem 0;
 }
 
-/* ── Section preview actions pill (only visible in clean-preview, hidden in edit) ── */
-.section-preview-actions {
-	display: none;
-	position: absolute;
-	bottom: calc(100% + 2px);
-	right: 4px;
-	z-index: 2;
-	gap: 2px;
-	padding: 1px 2px;
-	background: var(--fg-color);
-	border: 1px solid var(--border-color);
-	border-radius: var(--radius);
-	box-shadow: var(--shadow-xs);
-	align-items: center;
-	opacity: 0;
-	transition: opacity 0.12s;
-}
-
 /* ── Table layout (field borders) ───────────────────────── */
 .section--grid {
 	/* section padding is folded into the edge cells (see below) so the grid
@@ -741,15 +694,6 @@ function remove_column(index) {
 
 .section--preview .drag-container:not(.section--grid *) {
 	gap: 0;
-}
-
-.section--preview .section-preview-actions {
-	display: flex;
-}
-
-.section--preview:hover .section-preview-actions,
-.section--preview.pfb-section-active .section-preview-actions {
-	opacity: 1;
 }
 
 .section--preview .section-title-display {
