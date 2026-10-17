@@ -226,10 +226,8 @@ class Sidebar(Document, DeskViews):
 
 		Titling a sidebar after its own module is the default and is allowed.
 		"""
-		if self.title == self.module:
-			return
-
-		if frappe.db.exists("Module Def", self.title, cache=True):
+		other = frappe.db.get_value("Module Def", self.title, cache=True)
+		if other and other != self.module:
 			frappe.throw(
 				_("{0} is another module's name, and a sidebar's title is what the desk calls it by.").format(
 					frappe.bold(self.title)
@@ -332,6 +330,13 @@ class Sidebar(Document, DeskViews):
 		from frappe.desk.doctype.dock.dock import rename_sidebar_rows
 
 		rename_sidebar_rows(old_name, new_name)
+
+	def on_trash(self):
+		from frappe.desk.doctype.dock.dock import remove_sidebar_rows
+
+		# a dock row is a Dynamic Link, which no delete checks, so it would stay behind pointing at
+		# nothing
+		remove_sidebar_rows(self.name)
 
 	def validate_item_routes(self):
 		for item in self.items:
@@ -1039,11 +1044,13 @@ def unlinked_key(item) -> str:
 # ---------------------------------------------------------------------------------------
 # The merge: folding a module's several old sidebars into one
 #
-# Only data conversion uses this. Both callers are conversions:
+# Only data conversion uses this. Every caller is a conversion:
 #
 #   * `convert_fixtures`, where an app's old fixtures were one file per workspace, so a module
 #     with four workspaces has to end up with one sidebar.
-#   * `patches.v16_0.convert_sidebars`, where a user may have forked several of a module's
+#   * `patches.v16_0.convert_sidebars`, the same for the rows of a site's v16 app sidebars.
+#   * `patches.v16_0.convert_custom_sidebars`, which merges nothing but builds the same shape.
+#   * `patches.v16_0.convert_personal_sidebars`, where a user may have forked several of a module's
 #     sidebars and now needs a single customization layer.
 #
 # Nothing on a running site merges. That is why this sits beside the model rather than inside
@@ -1144,6 +1151,34 @@ def merge_items(primary: frappe._dict, secondaries: list[frappe._dict]) -> list[
 			take(item, force_child=True)
 
 	return merged
+
+
+def options_as_filters(row) -> None:
+	"""Store a link's v16 `route_options` as its `filters`, which is what they were.
+
+	`filters` is part of an item's identity, so Stock Balance for one warehouse stays an item
+	apart from Stock Balance itself, rather than being merged into it. A Page or a URL is left
+	alone: its `route_options` is the page's own query, not a filter.
+	"""
+	if row.get("filters") or not row.get("route_options") or row.get("link_type") in ("Page", "URL"):
+		return
+
+	try:
+		options = json.loads(row.route_options)
+	except ValueError:
+		return
+	if not isinstance(options, dict) or not options:
+		return
+
+	row.filters = json.dumps(
+		[
+			[row.link_to, field, *value]
+			if isinstance(value, list) and len(value) == 2
+			else [row.link_to, field, "=", value]
+			for field, value in options.items()
+		]
+	)
+	row.route_options = None
 
 
 def build_sidebar(module: str, workspaces: list[frappe._dict]) -> frappe._dict:
