@@ -6,6 +6,7 @@ import json
 import os
 import re
 from datetime import timedelta
+from decimal import Decimal
 from html import unescape
 from typing import TYPE_CHECKING, Any
 
@@ -396,12 +397,25 @@ def get_user_facing_error(traceback: str | None) -> str:
 
 	lines = traceback.strip().splitlines()
 	message = lines[-1]
-	# a traceback ends in "module.Exception: message", a single line is already the message
+
 	if len(lines) > 1:
-		message = message.partition(": ")[2]
+		# Find the last traceback header, in case there are chained exceptions.
+		start = max(
+			(i for i, line in enumerate(lines) if line.startswith("Traceback ")),
+			default=0,
+		)
+
+		# Skip stack frames and find the first non-indented line after the header.
+		exception_at = next(
+			(i for i in range(start + 1, len(lines)) if lines[i] and not lines[i][0].isspace()),
+			len(lines) - 1,
+		)
+
+		# Remove the exception class, and the query and caret postgres adds below the message.
+		message_lines = [lines[exception_at].partition(": ")[2], *lines[exception_at + 1 :]]
+		message = " ".join(line for line in message_lines if not re.match(r"LINE \d+: |\s*\^\s*$", line))
 
 	message = re.sub(r"<[^>]*>", " ", message)
-
 	return unescape(" ".join(message.split()))
 
 
@@ -856,7 +870,7 @@ def add_total_row(
 					fieldtype = "Float"
 			if fieldtype in ["Currency", "Int", "Float", "Percent", "Duration"] and flt(cell):
 				if not (is_tree and row.get(parent_field)):
-					total_row[col_idx] = flt(total_row[col_idx]) + flt(cell)
+					total_row[col_idx] = Decimal(total_row[col_idx] or 0) + Decimal(str(flt(cell)))
 
 			if fieldtype == "Percent" and col_idx not in has_percent:
 				has_percent.append(col_idx)
@@ -868,6 +882,9 @@ def add_total_row(
 
 		if fieldtype == "Link" and options == "Currency":
 			total_row[col_idx] = result[0].get(fieldname) if is_row_dict else result[0][col_idx]
+
+		if isinstance(total_row[col_idx], Decimal):
+			total_row[col_idx] = float(total_row[col_idx])
 
 	for col_idx in has_percent:
 		total_row[col_idx] = flt(total_row[col_idx]) / len(result)
