@@ -47,6 +47,17 @@ frappe.urllib = {
 
 window.open_url_post = function open_url_post(URL, PARAMS, new_window) {
 	// call a url as POST
+	// Under a sub-path a root-relative URL needs the prefix, as frappe.call adds it; and a
+	// `cmd` posted to the site root (the report exports) goes to its REST path instead,
+	// which a prefixed site routes and which the root no longer accepts.
+	const _sp = (frappe.router && frappe.router._subpath_prefix) || "";
+	if (PARAMS && PARAMS.cmd && (URL === "/" || URL === frappe.request.url)) {
+		URL = _sp + "/api/method/" + PARAMS.cmd;
+		PARAMS = Object.assign({}, PARAMS);
+		delete PARAMS.cmd;
+	} else if (_sp && typeof URL === "string" && URL.startsWith("/") && !URL.startsWith(_sp + "/")) {
+		URL = _sp + URL;
+	}
 	var temp = document.createElement("form");
 	temp.action = URL;
 	temp.method = "POST";
