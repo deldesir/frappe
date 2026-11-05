@@ -31,6 +31,10 @@ frappe.urllib = {
 		// var url= (frappe.base_url || window.location.href).split('#')[0].split('?')[0].split('desk')[0];
 		var url = frappe.base_url || window.location.origin;
 		if (url.substr(url.length - 1, 1) == "/") url = url.substr(0, url.length - 1);
+		// Under a sub-path the site's base is the origin plus the prefix the server was mounted
+		// at: an absolute link built on it stays inside the site.
+		var prefix = (frappe.router && frappe.router._subpath_prefix) || "";
+		if (prefix && !url.endsWith(prefix)) url += prefix;
 		return url;
 	},
 
@@ -38,6 +42,11 @@ frappe.urllib = {
 	get_full_url: function (url) {
 		if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) {
 			return url;
+		}
+		// A path already spelled with the prefix is not prefixed twice.
+		var prefix = (frappe.router && frappe.router._subpath_prefix) || "";
+		if (prefix && (url === prefix || url.startsWith(prefix + "/"))) {
+			return (frappe.base_url || window.location.origin).replace(/\/$/, "") + url;
 		}
 		return url.substr(0, 1) === "/"
 			? frappe.urllib.get_base_url() + url
