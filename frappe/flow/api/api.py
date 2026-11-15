@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import frappe
+import frappe.defaults
 from frappe import _
 from frappe.flow.daemon.client import DaemonClient
 from frappe.flow.lib.session import new_session, sync_with_retry
@@ -23,7 +24,8 @@ if TYPE_CHECKING:
 FEEDBACK_COMMENT_LIMIT = 500
 TITLE_LIMIT = 140
 LIST_LIMIT = 100
-RUN_FIELDS = ["name", "daemon_run_id", "status", "error", "feedback_rating", "feedback_comment"]
+RUN_FIELDS = ["name", "daemon_run_id", "status", "error"]
+FEEDBACK_FIELDS = ["feedback_rating", "feedback_comment"]
 REASONING_EFFORTS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 # What the /flow page's settings manage; boot reports the caller's rights on each.
 SETTINGS_DOCTYPES = (
@@ -40,16 +42,26 @@ SETTINGS_DOCTYPES = (
 	"Flow Settings",
 )
 
+# Per-user chat preferences and their allowed values. None means the default.
+USER_PREFS = {
+	"mode": ("ask", "auto", "auto_approve"),
+	"separateToolCalls": (True, False),
+}
+USER_PREFS_KEY = "flow_prefs"
+
 
 @frappe.whitelist()
 def boot() -> dict[str, Any]:
 	"""What a client needs before its first call: agents (with their models) and models to pick
 	from, the default agent, whether a provider is set up, the file types it may attach, who is
-	signed in and what they may manage."""
+	signed in, what they may manage and the chat preferences they keep."""
 	frappe.has_permission("Flow Session", "read", throw=True)
+	from frappe.flow.api.setup import sync_site_provider
 	from frappe.flow.assistant.assistant import ASSISTANT_AGENT_NAME
+	from frappe.flow.doctype.flow_tool.flow_tool import unavailable_tools
 	from frappe.flow.knowledge.extract import FILE_EXTENSIONS
 
+	sync_site_provider()
 	agents = frappe.get_list("Flow Agent", filters={"enabled": 1}, fields=["name", "title", "model"])
 	# an app's agent shows without its app, unless another app's agent is named the same
 	short = [agent.name.rpartition("/")[2] for agent in agents]
@@ -57,9 +69,10 @@ def boot() -> dict[str, Any]:
 		app = agent.name.rpartition("/")[0]
 		agent.title = f"{name} ({app})" if app and short.count(name) > 1 else name
 	agents.sort(key=lambda agent: agent.title.lower())
+	# the chat's models: an embedding model is Knowledge's, not one to chat with
 	models = frappe.get_list(
 		"Flow Model",
-		filters={"enabled": 1},
+		filters={"enabled": 1, "embedding": 0},
 		fields=["name", "title", "model_id", "provider", "context_window"],
 		order_by="title",
 	)
@@ -67,10 +80,15 @@ def boot() -> dict[str, Any]:
 		"agents": agents,
 		"default_agent": next((a.name for a in agents if a.name == ASSISTANT_AGENT_NAME), None),
 		"models": models,
-		"provider": frappe.db.get_value("Flow Provider", {"enabled": 1}),
+		# the providers connected, oldest first: the first run picks a model from one of them
+		"providers": frappe.get_all(
+			"Flow Provider", filters={"enabled": 1}, pluck="name", order_by="creation asc"
+		),
 		"file_types": sorted(FILE_EXTENSIONS),
+		"prefs": _user_prefs(),
+		"unavailable_tools": unavailable_tools(),
 		"user": frappe.db.get_value(
-			"User", frappe.session.user, ["name", "full_name", "user_image"], as_dict=True
+			"User", frappe.session.user, ["name", "full_name", "email", "user_image"], as_dict=True
 		),
 		"permissions": {
 			doctype: [
@@ -83,20 +101,20 @@ def boot() -> dict[str, Any]:
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_session(
 	agent: str | None = None,
 	model: str | None = None,
 	title: str | None = None,
-	auto_approve: bool | int | str = False,
+	approval_mode: str | None = None,
 ) -> dict[str, Any]:
-	"""Start a session with `agent` (the Assistant by default)."""
+	"""Start a session with `agent` (the Assistant by default); `approval_mode` defaults to Auto."""
 	frappe.has_permission("Flow Session", "create", throw=True)
 	doc = new_session(
 		agent or None,
 		model=model or None,
 		title=(title or "").strip() or None,
-		auto_approve=cint(auto_approve),
+		approval_mode=approval_mode or None,
 	)
 	return _session_payload(doc)
 
@@ -157,7 +175,7 @@ def skills(session: str | None = None, agent: str | None = None) -> dict[str, An
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def run(session: str, message: str, attachments: list[str] | str | None = None) -> dict[str, Any]:
 	"""Start a turn and answer at once: "started" with its new run, or "steered" with the
 	active run the message joined. `attachments` are File names staged with attach_file;
@@ -175,7 +193,7 @@ def run(session: str, message: str, attachments: list[str] | str | None = None) 
 	return {"run": run.name, "status": "steered" if run.name == active else "started"}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def resume(
 	session: str, answers: dict[str, Any] | str, approval_seq: int | str | None = None
 ) -> dict[str, Any]:
@@ -239,12 +257,12 @@ def _waiting_call(doc: FlowSession, call_id: str) -> dict[str, Any] | None:
 	return None
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def abort(session: str) -> dict[str, str]:
 	return {"status": _load_session(session, "write").abort()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def cancel_pending(session: str) -> dict[str, str]:
 	return {"status": _load_session(session, "write").cancel_pending()}
 
@@ -273,6 +291,15 @@ def entries(session: str, since: int | str = 0, path: str = "active") -> dict[st
 
 
 @frappe.whitelist()
+def system_prompt(session: str) -> str | None:
+	"""The session's system prompt for a System Manager; None for anyone else."""
+	doc = _load_session(session, "read")
+	if "System Manager" not in frappe.get_roles():
+		return None
+	return doc.system_prompt()
+
+
+@frappe.whitelist(methods=["POST"])
 def set_model(session: str, model: str, reasoning_effort: str | None = None) -> dict[str, Any]:
 	"""Switch the session's model; `reasoning_effort` sets its thinking level, empty for the default."""
 	if not isinstance(model, str) or not model.strip():
@@ -290,7 +317,7 @@ def set_model(session: str, model: str, reasoning_effort: str | None = None) -> 
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_title(session: str, title: str) -> dict[str, str]:
 	title = (title or "").strip()[:TITLE_LIMIT]
 	if not title:
@@ -299,15 +326,34 @@ def set_title(session: str, title: str) -> dict[str, str]:
 	return {"title": title}
 
 
-@frappe.whitelist()
-def set_auto_approve(session: str, auto_approve: bool | int | str) -> dict[str, bool]:
-	"""Whether confirmation tools run unattended; Trigger sessions cannot turn it off."""
-	flag = bool(cint(auto_approve))
-	_load_session(session, "write").set_auto_approve(flag)
-	return {"auto_approve": flag}
+@frappe.whitelist(methods=["POST"])
+def set_approval_mode(session: str, mode: str) -> dict[str, str]:
+	"""Ask, Auto or Auto-approve; a Trigger session stays on Auto-approve."""
+	_load_session(session, "write").set_approval_mode(mode)
+	return {"approval_mode": mode}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
+def set_prefs(prefs: dict[str, Any]) -> dict[str, Any]:
+	"""Keep the signed-in user's own chat preferences, so they follow the user to another browser."""
+	frappe.has_permission("Flow Session", "read", throw=True)
+	for key, value in prefs.items():
+		allowed = USER_PREFS.get(key)
+		if not allowed or (
+			value is not None and not any(value == a and type(value) is type(a) for a in allowed)
+		):
+			frappe.throw(_("Invalid preference: {0}").format(key), title=_("Invalid Preference"))
+	saved = {**_user_prefs(), **prefs}
+	frappe.defaults.set_user_default(USER_PREFS_KEY, json.dumps(saved))
+	return saved
+
+
+def _user_prefs() -> dict[str, Any]:
+	saved = frappe.parse_json(frappe.defaults.get_user_default(USER_PREFS_KEY) or "{}")
+	return {key: value for key, value in saved.items() if key in USER_PREFS}
+
+
+@frappe.whitelist(methods=["POST"])
 def delete_session(session: str) -> dict[str, str]:
 	_load_session(session, "delete").delete()
 	return {"status": "deleted"}
@@ -375,7 +421,7 @@ def sync_session(session: str) -> dict[str, Any]:
 	return _session_payload(doc)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def submit_feedback(run_name: str, rating: str, comment: str | None = None) -> dict[str, Any]:
 	"""Record thumbs feedback on a finished run, or clear it with rating "None". A
 	thumbs-down comment is stored as agent memory when the agent has memory enabled (a no-op
@@ -409,8 +455,18 @@ def submit_feedback(run_name: str, rating: str, comment: str | None = None) -> d
 		run.db_set({"feedback_rating": "", "feedback_comment": None})
 		return {"rating": None, "forgotten": forgotten} if forgotten else {"rating": None}
 
-	memory = save_feedback_memory(run, comment) if rating == "Down" and comment else None
 	run.db_set({"feedback_rating": rating, "feedback_comment": comment or None})
+	memory = None
+	if rating == "Down" and comment:
+		frappe.db.savepoint("flow_feedback_memory")
+		try:
+			memory = save_feedback_memory(run, comment)
+		except Exception:
+			# the rating stands without its memory
+			frappe.db.rollback(save_point="flow_feedback_memory")
+			frappe.log_error(
+				title="Flow feedback memory failed", reference_doctype="Flow Run", reference_name=run.name
+			)
 
 	result: dict[str, Any] = {"rating": rating}
 	if memory:
@@ -418,7 +474,7 @@ def submit_feedback(run_name: str, rating: str, comment: str | None = None) -> d
 	return result
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def attach_file(file: str, model: str | None = None) -> dict[str, Any]:
 	"""Validate and extract an uploaded File for use as a chat attachment. Errors
 	(unsupported type, unreadable, not owned) surface here, at upload time. The
@@ -433,7 +489,7 @@ def attach_file(file: str, model: str | None = None) -> dict[str, Any]:
 	return stage_attachment(file.strip(), model)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def cleanup_attachments(
 	session: str | None = None, attachments: list[str] | str | None = None
 ) -> dict[str, list[str]]:
@@ -464,6 +520,7 @@ def _load_session(session: str, ptype: str) -> FlowSession:
 
 def _session_payload(doc: FlowSession) -> dict[str, Any]:
 	model = doc.model or frappe.get_cached_value("Flow Agent", doc.agent, "model")
+	can_write = frappe.has_permission("Flow Session", "write", doc)
 	return {
 		"name": doc.name,
 		"title": doc.title,
@@ -473,10 +530,13 @@ def _session_payload(doc: FlowSession) -> dict[str, Any]:
 		"owner": doc.owner,
 		"owner_name": get_fullname(doc.owner),
 		"general_access": doc.general_access,
-		"auto_approve": bool(doc.auto_approve),
-		"read_only": not frappe.has_permission("Flow Session", "write", doc),
+		"approval_mode": doc.approval_mode,
+		"read_only": not can_write,
 		"runs": frappe.get_all(
-			"Flow Run", filters={"session": doc.name}, fields=RUN_FIELDS, order_by="creation asc"
+			"Flow Run",
+			filters={"session": doc.name},
+			fields=[*RUN_FIELDS, *FEEDBACK_FIELDS] if can_write else RUN_FIELDS,
+			order_by="creation asc",
 		),
 	}
 

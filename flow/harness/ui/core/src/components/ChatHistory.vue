@@ -1,15 +1,15 @@
 <template>
-	<!-- its list hangs under it, over the composer -->
+	<!-- its list hangs under it, over the composer; rows a menu's height, a chat's title each -->
 	<span class="relative z-20">
-		<button
-			class="flow-icon-btn"
+		<Button
+			ref="trigger"
+			variant="ghost"
+			icon="lucide-history"
 			:class="open ? 'bg-surface-gray-2' : ''"
 			title="Recent chats"
 			:aria-expanded="open"
 			@click="open ? close() : show()"
-		>
-			<span class="lucide-history size-3.5" aria-hidden="true" />
-		</button>
+		/>
 		<PalettePanel
 			v-if="open"
 			title="Recent chats"
@@ -36,7 +36,7 @@
 					:key="s.session_id"
 					data-palette-item
 					:aria-current="s.session_id === flow.state.sessionId ? 'true' : undefined"
-					class="flow-palette-row"
+					class="flow-palette-row !min-h-7"
 					@click="choose(s.session_id)"
 				>
 					<span class="min-w-0 truncate">{{ flow.sessionTitle(s) }}</span>
@@ -59,6 +59,7 @@
 
 <script setup>
 import { computed, inject, nextTick, ref, watch } from "vue"
+import { Button } from "frappe-ui/src/components/Button"
 
 import { useDebouncedValue } from "../debounce.js"
 import { layout } from "../layout.js"
@@ -86,14 +87,16 @@ function show() {
 	nextTick(() => field.value?.focus())
 }
 
-// a search left in the box gives way to the whole list
-function close() {
+// a search left in the box gives way to the whole list; the keyboard goes back to the clock
+const trigger = ref(null)
+function close(refocus = true) {
 	open.value = false
 	search.value = ""
+	if (refocus) nextTick(() => trigger.value?.$el?.focus())
 }
 
 function choose(id) {
-	close()
+	close(false)
 	if (id !== flow.state.sessionId) flow.openSession(id)
 }
 </script>

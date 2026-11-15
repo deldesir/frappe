@@ -210,6 +210,20 @@ class TestSubmitFeedback(IntegrationTestCase):
 				self.assertEqual(frappe.db.get_value("Flow Run", run, "feedback_rating"), rating)
 				self.assertFalse(frappe.db.exists("Flow Agent Memory", {"agent": agent}))
 
+	def test_a_thumbs_down_is_saved_when_its_memory_fails(self):
+		for failure in (
+			patch("frappe.flow.memory.memory.MAX_ACTIVE_MEMORIES", 0),
+			patch("frappe.flow.memory.store.sync", side_effect=RuntimeError("embedding down")),
+		):
+			run = self._run()
+			with self.subTest(failure.attribute), failure, patch("frappe.log_error"):
+				self.assertEqual(submit_feedback(run, "Down", comment="Wrong total."), {"rating": "Down"})
+				self.assertEqual(
+					frappe.db.get_value("Flow Run", run, ["feedback_rating", "feedback_comment"]),
+					("Down", "Wrong total."),
+				)
+				self.assertFalse(frappe.db.exists("Flow Agent Memory", {"source_run": run}))
+
 	def test_refuses_invalid_feedback(self):
 		for status, rating, comment, error in (
 			("Completed", "Sideways", None, "Rating"),
@@ -241,6 +255,15 @@ class TestSubmitFeedback(IntegrationTestCase):
 			frappe.set_user(user)
 			with self.subTest(user), self.assertRaises(frappe.PermissionError):
 				submit_feedback(name, rating, comment=comment)
+
+	def test_a_viewer_of_a_shared_chat_does_not_see_its_feedback(self):
+		run = self._run(feedback_rating="Down", feedback_comment="My manager is slow.")
+		session = frappe.db.get_value("Flow Run", run, "session")
+		self.assertEqual(api.session(session)["runs"][0]["feedback_comment"], "My manager is slow.")
+		viewer = _ensure_user("feedback-chat-viewer@example.com")
+		frappe.share.add("Flow Session", session, viewer)
+		frappe.set_user(viewer)
+		self.assertEqual(api.session(session)["runs"][0].keys(), {"name", "daemon_run_id", "status", "error"})
 
 
 class ApiCase(IntegrationTestCase):
@@ -327,7 +350,9 @@ class TestPasswordBox(ApiCase):
 		name = self.create()
 		api.run(name, "connect my contacts")
 		api.sync_session(name)
-		self.assertIn("prompt", self.dispatch(name, self.args(), "confirm"))
+		asked = self.dispatch(name, self.args(), "confirm")
+		self.assertIn("prompt", asked)
+		self.assertTrue(asked["needs_user"])  # the box is the card: no reviewer answers it for the user
 		self.assertEqual(api.save_secret(name, "c7", SECRET), {"saved": True})
 		api.resume(name, '{"c7": "Approve"}')
 		result = self.dispatch(name, self.args(), "execute")
@@ -397,6 +422,24 @@ class TestSessionEndpoints(ApiCase):
 		for name in api.__all__:
 			frappe.is_whitelisted(frappe.get_attr(f"frappe.flow.api.{name}"))
 
+	def test_system_prompt_is_sent_to_a_system_manager_only(self):
+		owner = _ensure_user(SHARER)
+		frappe.set_user(owner)
+		sid = self.create()
+		self.daemon.configs[sid]["system_prompt"] = "You are Flow, composed."
+		self.daemon.calls.clear()
+		self.assertIsNone(api.system_prompt(sid))
+		self.assertEqual(self.daemon.calls, [])  # a plain user's ask never reaches the flow server
+
+		frappe.set_user("Administrator")
+		frappe.get_doc("User", owner).add_roles("System Manager")
+		frappe.set_user(owner)
+		self.assertEqual(api.system_prompt(sid), "You are Flow, composed.")
+
+		frappe.set_user(_ensure_user(OTHER))
+		with self.assertRaises(frappe.PermissionError):
+			api.system_prompt(sid)
+
 	def test_screen_result_hands_the_panels_answer_to_the_call_waiting_on_its_token(self):
 		sid = self.create()
 		self.assertEqual(api.screen_result(sid, "t1", screen={"url": "/app/todo"}), {"delivered": True})
@@ -417,6 +460,21 @@ class TestSessionEndpoints(ApiCase):
 		frappe.set_user(viewer)
 		with self.assertRaises(frappe.PermissionError):
 			api.screen_result(sid, "t4", screen={})
+
+	def test_a_users_chat_preferences_are_kept_and_come_with_boot(self):
+		other = _ensure_user("prefs-other-user@example.com")
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(_ensure_user("prefs-user@example.com"))
+		self.assertEqual(api.boot()["prefs"], {})
+		api.set_prefs({"mode": "ask", "separateToolCalls": True})
+		# None follows the page's default
+		self.assertEqual(api.set_prefs({"mode": None}), {"mode": None, "separateToolCalls": True})
+		self.assertEqual(api.boot()["prefs"], {"mode": None, "separateToolCalls": True})
+		for bad in ({"mode": "everything"}, {"separateToolCalls": 1}, {"theme": None}):
+			self.assertRaises(frappe.ValidationError, api.set_prefs, bad)
+		# each user's own
+		frappe.set_user(other)
+		self.assertEqual(api.boot()["prefs"], {})
 
 	def test_boot_names_an_apps_agent_after_its_app_only_when_another_app_shares_its_name(self):
 		for name in ("crm/Support", "helpdesk/Support", "crm/Sales Coach"):
@@ -453,36 +511,39 @@ class TestSessionEndpoints(ApiCase):
 		self.assertIn("full_name", data["user"])
 		self.assertEqual(data["permissions"]["Flow Provider"], ["read", "write", "create", "delete"])
 		frappe.db.delete("Flow Provider")  # tearDown rolls it back
-		self.assertIsNone(api.boot()["provider"])
+		self.assertEqual(api.boot()["providers"], [])
 		provider = frappe.get_doc({"doctype": "Flow Provider", "provider": "openai"}).insert()
-		self.assertEqual(api.boot()["provider"], provider.name)
+		self.assertEqual(api.boot()["providers"], [provider.name])
 		frappe.set_user(_ensure_user(OTHER))
 		data = api.boot()
 		self.assertEqual(data["user"]["name"], OTHER)
 		self.assertEqual(data["permissions"]["Flow Provider"], [])
 		self.assertEqual(data["permissions"]["Flow Model"], ["read"])
 
-	def test_create_session_names_the_agent_and_keeps_auto_approve(self):
-		data = api.create_session(self.agent.name, model=self.model.name, title=" Hello ", auto_approve="1")
+	def test_create_session_names_the_agent_and_keeps_the_approval_mode(self):
+		data = api.create_session(
+			self.agent.name, model=self.model.name, title=" Hello ", approval_mode="Auto-approve"
+		)
 		self.assertEqual(
 			(
 				data["agent"],
 				data["model"],
 				data["title"],
 				data["source"],
-				data["auto_approve"],
+				data["approval_mode"],
 				data["owner"],
 				data["runs"],
 			),
-			(self.agent.name, self.model.name, "Hello", "Manual", True, "Administrator", []),
+			(self.agent.name, self.model.name, "Hello", "Manual", "Auto-approve", "Administrator", []),
 		)
 		config = self.daemon.configs[data["name"]]
 		self.assertEqual(
-			(config["session_id"], config["title"], config["model"], config["auto_approve"]),
-			(data["name"], "Hello", "openai/gpt-4o-mini", True),
+			(config["session_id"], config["title"], config["model"], config["approval_mode"]),
+			(data["name"], "Hello", "openai/gpt-4o-mini", "auto_approve"),
 		)
 		plain = api.create_session(self.agent.name)
-		self.assertFalse(plain["auto_approve"])
+		self.assertEqual(plain["approval_mode"], "Auto")
+		self.assertEqual(self.daemon.configs[plain["name"]]["approval_mode"], "auto")
 		# no pick: the chat keeps the agent's model it started on, as the flow server does
 		self.assertEqual(frappe.db.get_value("Flow Session", plain["name"], "model"), self.model.name)
 		self.agent.db_set("model", frappe.get_doc(_model_doc(title="Next Agent Model")).insert().name)
@@ -516,7 +577,8 @@ class TestSessionEndpoints(ApiCase):
 		name = self.create()
 		run = api.run(name, "read", attachments=json.dumps([notes.name]))["run"]
 		self.assertEqual(
-			self.daemon.calls[-1], ("run", name, 'read\n<file name="notes.txt">\nthe body\n</file>')
+			self.daemon.calls[-1],
+			("run", name, f'read\n<file name="notes.txt" {_file_attrs(notes)}>\nthe body\n</file>'),
 		)
 		self.assertEqual(frappe.db.get_value("Flow Run", run, "input"), "read")
 		[row] = frappe.get_doc("Flow Session", name).attachments
@@ -536,11 +598,24 @@ class TestSessionEndpoints(ApiCase):
 		# a file may go without a message
 		gone = self.upload("gone.txt", "gone")
 		self.assertEqual(api.run(name, "", attachments=[gone.name])["status"], "started")
-		self.assertEqual(self.daemon.calls[-1], ("run", name, '\n<file name="gone.txt">\ngone\n</file>'))
+		self.assertEqual(
+			self.daemon.calls[-1],
+			("run", name, f'\n<file name="gone.txt" {_file_attrs(gone)}>\ngone\n</file>'),
+		)
 		# a sync drops the row of a file deleted since
 		frappe.db.delete("File", {"name": gone.name})
 		api.sync_session(name)
 		self.assertEqual([row.file for row in frappe.get_doc("Flow Session", name).attachments], [notes.name])
+
+	def test_another_users_file_is_refused_even_when_readable(self):
+		theirs = self.upload("theirs.txt", "their body")
+		frappe.db.set_value("File", theirs.name, "owner", OTHER)
+		name = self.create()
+		# attached to the chat, it could be deleted with it
+		for attach in (lambda: api.attach_file(theirs.name), lambda: api.run(name, "read", [theirs.name])):
+			with self.assertRaisesRegex(frappe.PermissionError, "files you uploaded"):
+				attach()
+		self.assertFalse(frappe.db.get_value("File", theirs.name, "attached_to_doctype"))
 
 	def test_blank_or_malformed_input_is_refused(self):
 		name = self.create()
@@ -597,7 +672,7 @@ class TestSessionEndpoints(ApiCase):
 			lambda: api.compact(fired),
 			lambda: api.set_model(fired, self.model.name),
 			lambda: api.set_title(fired, "x"),
-			lambda: api.set_auto_approve(fired, 1),
+			lambda: api.set_approval_mode(fired, "Ask"),
 			lambda: api.cleanup_attachments(fired),
 		):
 			with self.assertRaises(frappe.PermissionError):
@@ -943,6 +1018,25 @@ class TestSessionEndpoints(ApiCase):
 		self.daemon.running = True
 		self.assertEqual(api.abort(name), {"status": "aborting"})
 
+	def test_methods_that_change_something_refuse_get(self):
+		# GET skips the CSRF check
+		for method in (
+			api.create_session,
+			api.run,
+			api.resume,
+			api.abort,
+			api.cancel_pending,
+			api.set_model,
+			api.set_title,
+			api.set_approval_mode,
+			api.delete_session,
+			api.submit_feedback,
+			api.attach_file,
+			api.cleanup_attachments,
+		):
+			with self.subTest(method.__name__):
+				self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[method], ("POST",))
+
 	def test_set_model_sends_the_models_credentials_and_reasoning_effort(self):
 		name = self.create()
 		other = frappe.get_doc(
@@ -991,32 +1085,37 @@ class TestSessionEndpoints(ApiCase):
 			api.set_model(name, other.name)
 		self.assertEqual(len([c for c in self.daemon.calls if c[0] == "set_model"]), 3)
 
-	def test_title_and_auto_approve_persist_on_both_sides(self):
+	def test_title_and_approval_mode_persist_on_both_sides(self):
 		name = self.create()
 		self.assertEqual(api.set_title(name, "  Renamed  "), {"title": "Renamed"})
-		self.assertEqual(api.set_auto_approve(name, "1"), {"auto_approve": True})
+		self.assertEqual(api.set_approval_mode(name, "Auto-approve"), {"approval_mode": "Auto-approve"})
 		doc = frappe.get_doc("Flow Session", name)
-		self.assertEqual((doc.title, doc.auto_approve), ("Renamed", 1))
-		self.assertEqual(api.set_auto_approve(name, 0), {"auto_approve": False})
-		self.assertEqual(api.session(name)["auto_approve"], False)
+		self.assertEqual((doc.title, doc.approval_mode), ("Renamed", "Auto-approve"))
+		self.assertEqual(api.set_approval_mode(name, "Ask"), {"approval_mode": "Ask"})
+		self.assertEqual(api.session(name)["approval_mode"], "Ask")
+		self.assertEqual(api.set_approval_mode(name, "Auto"), {"approval_mode": "Auto"})
 		self.assertEqual(
 			[c for c in self.daemon.calls if c[0] == "patch_config"],
 			[
 				("patch_config", name, {"title": "Renamed"}),
-				("patch_config", name, {"auto_approve": True}),
-				("patch_config", name, {"auto_approve": False}),
+				("patch_config", name, {"approval_mode": "auto_approve"}),
+				("patch_config", name, {"approval_mode": "ask"}),
+				("patch_config", name, {"approval_mode": "auto"}),
 			],
 		)
-		self.assertEqual(self.daemon.configs[name]["auto_approve"], False)
+		self.assertEqual(self.daemon.configs[name]["approval_mode"], "auto")
+		with self.assertRaisesRegex(frappe.ValidationError, "Ask, Auto or Auto-approve"):
+			api.set_approval_mode(name, "Maybe")
 
 		# a trigger session always auto-approves
 		fired = frappe.get_doc(
-			{"doctype": "Flow Session", "agent": self.agent.name, "source": "Trigger", "auto_approve": 0}
+			{"doctype": "Flow Session", "agent": self.agent.name, "source": "Trigger", "approval_mode": "Ask"}
 		).insert()
-		self.assertTrue(fired.auto_approve)
-		with self.assertRaisesRegex(frappe.ValidationError, "always auto-approve"):
-			api.set_auto_approve(fired.name, 0)
-		self.assertEqual(api.set_auto_approve(fired.name, 1), {"auto_approve": True})
+		self.assertEqual(fired.approval_mode, "Auto-approve")
+		for mode in ("Ask", "Auto"):
+			with self.assertRaisesRegex(frappe.ValidationError, "always auto-approve"):
+				api.set_approval_mode(fired.name, mode)
+		self.assertEqual(api.set_approval_mode(fired.name, "Auto-approve"), {"approval_mode": "Auto-approve"})
 
 	def test_skills_lists_what_a_user_may_start_in_a_session_or_with_an_agent(self):
 		frappe.get_doc(
@@ -1117,3 +1216,7 @@ class TestLiveEndpoints(LiveServerCase):
 				("assistant", "Mock reply to: two"),
 			],
 		)
+
+
+def _file_attrs(file_doc) -> str:
+	return f'file="{file_doc.name}" url="{file_doc.file_url}" size="1 KB"'

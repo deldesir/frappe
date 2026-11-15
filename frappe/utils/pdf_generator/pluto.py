@@ -76,6 +76,8 @@ def plutoprint_blockers(print_format=None) -> list[str]:
 	if importlib.util.find_spec("plutoprint") is None:
 		blockers.append(_("PlutoPrint is not installed on this server"))
 	if print_format:
+		if print_format.get("print_designer"):
+			blockers.append(_("Print Designer"))
 		source = "\n".join(cstr(print_format.get(field)) for field in ("html", "css", "format_data"))
 		if SCRIPT.search(JINJA_TAG.sub("", source)):
 			blockers.append(_("JavaScript"))
@@ -199,8 +201,10 @@ class PlutoPage:
 		overflow = book.get_document_width() * POINTS_PER_PX * scale
 		if overflow > content_width + 1:
 			scale *= max(content_width / overflow, MAX_SHRINK)
+			del book
 			book = self._layout(width, height, margins, scale)
 		if book.get_page_count() > 1:
+			del book
 			book = self._layout(width, height, margins, scale, MULTI_PAGE_STYLE)
 
 		pdf = self._write(book, width, height, scale)
