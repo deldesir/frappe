@@ -381,6 +381,47 @@ class TestPrintFormatGenerator(IntegrationTestCase):
 				fieldnames = self._layout_fieldnames(PrintFormatGenerator(pf, todo))
 			self.assertIn("_secret", fieldnames)
 
+	def test_permlevel_restricted_block_sources_are_dropped(self):
+		"""Repeater and Barcode blocks are dropped when the field they print from is restricted."""
+		from unittest.mock import patch
+
+		from frappe.utils.print_format_generator import PrintFormatGenerator
+
+		pf = self._make_print_format()
+		todo = self._make_todo()
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user("test@example.com")
+
+		layout = json.loads(pf.format_data)
+		layout["sections"][0]["columns"][0]["fields"] += [
+			{"fieldtype": "Repeater", "fieldname": "repeater", "source": "_secret"},
+			{"fieldtype": "Barcode", "fieldname": "barcode", "custom": 1, "barcode_field": "_secret"},
+		]
+		pf.format_data = json.dumps(layout)
+		get_field = todo.meta.get_field
+		restricted = frappe._dict(permlevel=1)
+
+		with patch.object(
+			todo.meta, "get_field", side_effect=lambda f: restricted if f == "_secret" else get_field(f)
+		):
+			fieldnames = self._layout_fieldnames(PrintFormatGenerator(pf, todo))
+		self.assertNotIn("repeater", fieldnames)
+		self.assertNotIn("barcode", fieldnames)
+
+	def test_linked_fields_load_the_linked_document_once(self):
+		from frappe.utils.print_format_generator import PrintFormatGenerator
+
+		pf = self._make_print_format()
+		todo = self._make_todo()
+		todo.allocated_to = "test@example.com"
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user("test@example.com")
+		generator = PrintFormatGenerator(pf, todo)
+
+		self.assertEqual(generator.resolve_linked_path("allocated_to.email")[0], "test@example.com")
+		with self.assertQueryCount(0):
+			self.assertEqual(generator.resolve_linked_path("allocated_to.enabled")[0], 1)
+
 	def _layout_fieldnames(self, generator):
 		return [
 			df.get("fieldname")

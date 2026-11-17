@@ -5,9 +5,9 @@
 		</template>
 		<div class="divide-y divide-outline-gray-1">
 			<SettingsRow title="Theme" description="Follow the system, or pick one.">
-				<Select :model-value="colorScheme" :options="THEMES" class="w-36" @update:model-value="setColorScheme" />
+				<Select align="start" :model-value="colorScheme" :options="THEMES" class="w-36" @update:model-value="setColorScheme" />
 			</SettingsRow>
-			<SettingsRow title="Font size" description="The size of the chat's text." :saved="size">
+			<SettingsRow title="Font size" description="The size of the chat's text. The rest of Flow scales with it." :saved="size">
 				<span class="flex items-center gap-2">
 					<!-- one box: the steps sit inside its border and round with its corners -->
 					<span
@@ -42,11 +42,15 @@
 			</SettingsRow>
 			<SettingsRow title="Font weight" description="The weight of the chat's text." :saved="weight">
 				<Select
+					align="start"
 					:model-value="weight"
 					:options="CHAT_FONT_WEIGHT.options"
 					class="w-36"
 					@update:model-value="flow.setChatFontWeight"
 				/>
+			</SettingsRow>
+			<SettingsRow title="Show each step separately" description="When off, steps are grouped into one line.">
+				<Switch :model-value="separateToolCalls" aria-label="Show each step separately" @update:model-value="flow.setSeparateToolCalls" />
 			</SettingsRow>
 		</div>
 	</SettingsPage>
@@ -56,6 +60,7 @@
 import { computed, inject } from "vue"
 import { Button } from "frappe-ui/src/components/Button"
 import { Select } from "frappe-ui/src/components/Select"
+import { Switch } from "frappe-ui/src/components/Switch"
 import { useColorScheme } from "frappe-ui/src/composables/useColorScheme"
 
 import { CHAT_FONT_SIZE, CHAT_FONT_WEIGHT } from "../layout.js"
@@ -75,14 +80,20 @@ const flow = inject("flow")
 const { colorScheme, setColorScheme } = useColorScheme()
 const size = computed(() => flow.state.prefs.chatFontSize)
 const weight = computed(() => flow.state.prefs.chatFontWeight)
+const separateToolCalls = computed(() => flow.state.prefs.separateToolCalls)
 
 const isDefault = computed(
-	() => colorScheme.value === "system" && size.value === CHAT_FONT_SIZE.default && weight.value === CHAT_FONT_WEIGHT.default,
+	() =>
+		colorScheme.value === "system" &&
+		size.value === CHAT_FONT_SIZE.default &&
+		weight.value === CHAT_FONT_WEIGHT.default &&
+		!separateToolCalls.value,
 )
 function reset() {
 	setColorScheme("system")
 	flow.setChatFontSize(CHAT_FONT_SIZE.default)
 	flow.setChatFontWeight(CHAT_FONT_WEIGHT.default)
+	flow.setSeparateToolCalls(false)
 }
 
 // a typed size applies as soon as it's complete and in range ("14." and "14.0" may be on their

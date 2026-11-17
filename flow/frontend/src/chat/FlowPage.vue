@@ -1,22 +1,20 @@
 <template>
 	<!-- clip, not hidden: a hidden root still scrolls when focus lands in the closed panel.
 	     The root is the sidebar's colour, so on the /flow page the chat stands on it as a raised
-	     panel; the launcher's panel keeps it flat at any size. The chat's text and its steps are
-	     the composer's size, the text a size up in a wide frame or on a phone -->
+	     panel; the launcher's panel keeps it flat at any size. The chat, its steps and the
+	     composer all read at Desk's base size (14px), at every width -->
 	<div
 		ref="root"
-		class="flow-sidebar-surface flex h-full min-h-0 overflow-clip text-md text-ink-gray-8 [--flow-step-text:theme(fontSize.base)]"
-		:class="
-			layout.phone
-				? '[--flow-chat-text:theme(fontSize.md)]'
-				: '[--flow-chat-text:theme(fontSize.base)] md:[--flow-chat-text:theme(fontSize.md)]'
-		"
+		class="flow-sidebar-surface flex h-full min-h-0 overflow-clip text-base text-ink-gray-8 [--flow-chat-text:theme(fontSize.base)] [--flow-step-text:theme(fontSize.base)]"
 	>
 		<SessionSidebar
 			v-if="!noSidebar"
 			:open="sidebarOpen"
 			:chat-in-view="!pageKind"
 			:before-switch="leavePage"
+			:apps="apps"
+			:logout="logout"
+			:user="page.state.boot.user"
 			@close="store.setSidebarOpen(false)"
 		/>
 		<div
@@ -27,6 +25,7 @@
 			<!-- hidden under a page, not taken away: the chat waits as it was, its box's draft and
 			     files too, and inert, so nothing in it answers keys meanwhile -->
 			<main
+				ref="chat"
 				v-show="!pageKind"
 				:inert="pageKind ? true : null"
 				class="relative flex min-w-0 flex-1 flex-col bg-surface-base"
@@ -39,34 +38,44 @@
 					:history="noSidebar"
 					:manage="!inPanel"
 					:beside-navbar="panelHost"
-					:transcript="!inPanel"
+					:app-menu="APP_MENU"
+					:before-switch="leavePage"
 					@open-sidebar="store.setSidebarOpen(true)"
 				>
 					<template v-if="inPanel" #end>
-						<button class="flow-icon-btn" title="Open in new tab" @click="openInTab">
-							<span class="lucide-external-link size-4" aria-hidden="true" />
-						</button>
-						<button class="flow-icon-btn" title="Close" @click="closePanel">
-							<span class="lucide-x size-4" aria-hidden="true" />
-						</button>
+						<Button variant="ghost" icon="lucide-external-link" title="Open in new tab" @click="openInTab" />
+						<Button variant="ghost" icon="lucide-x" title="Close" @click="closePanel" />
 					</template>
 				</ChatHeader>
-				<MessageList :suggestions="!readOnly">
-					<template #empty>
+				<MessageList
+					:suggestions="!readOnly"
+					:center-composer="!inPanel && !readOnly && !needsSetup"
+				>
+					<template #empty="{ mark }">
 						<SetupState v-if="needsSetup" />
+						<!-- the mark over a quiet heading, the mark a step smaller in a narrow frame -->
 						<template v-else>
-							<!-- a step smaller in a narrow frame, and smaller still where the heading would run out of room -->
 							<BrandMark
 								line
 								:size="32"
+								v-bind="mark"
 								class="min-h-0 shrink max-md:!h-7 max-md:!w-7"
 							/>
-							<h2
-								class="text-balance text-4xl leading-snug tracking-[-0.01em] text-ink-gray-9 md:text-6xl"
-							>
-								What can I help you with?
+							<h2 class="text-balance text-[22px] text-ink-gray-8">
+								What would you like to do?
 							</h2>
 						</template>
+					</template>
+					<template #error="{ error }">
+						{{ error.message }}
+						<button
+							v-if="error.settings_tab === 'models' && page.can('Flow Model', 'write')"
+							type="button"
+							class="underline"
+							@click="openSettings(error.settings_tab)"
+						>
+							Connect a provider
+						</button>
 					</template>
 				</MessageList>
 				<Composer
@@ -77,10 +86,21 @@
 					:images-only="false"
 					:placeholder="placeholder"
 					:modes="MODES"
+					:plus-lists="plusLists"
+					new-chat-mode-right
 				>
-					<template #start="{ insert }">
-						<AgentPicker />
-						<SkillPicker @pick="insert" />
+					<template #below="{ starting }">
+						<p v-if="starting && !inPanel" class="mt-2 px-3 text-center text-sm text-ink-gray-5">
+							Flow is in beta and can make mistakes
+						</p>
+					</template>
+					<!-- a new chat's agent and skills, as buttons beside the + -->
+					<template #tools="{ starting, tall, insert }">
+						<ChatPickers v-if="starting" :insert="insert" :tall="tall" />
+					</template>
+					<!-- a started chat's + menu: skills (it keeps its agent) -->
+					<template #plus-list="{ id, beside, close, insert }">
+						<SkillPicker v-if="id === 'skills'" :beside="beside" @close="close" @pick="insert" />
 					</template>
 					<template #palette="{ view, query, close, back }">
 						<AgentPalette
@@ -98,7 +118,7 @@
 					{{ readOnlyNote }}
 				</p>
 			</main>
-			<WorkspacePanel v-if="!pageKind">
+			<WorkspacePanel v-if="!pageKind" :beside-navbar="panelHost">
 				<template #empty>
 					<p class="text-sm text-ink-gray-4">A sub-agent's thread opens here.</p>
 				</template>
@@ -117,6 +137,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { isNavigationFailure, useRoute, useRouter } from "vue-router";
 import { Dialogs, ToastProvider, toast, useColorScheme } from "frappe-ui";
+import { Button } from "frappe-ui/src/components/Button";
 import BrandMark from "@flow/ui-core/components/BrandMark.vue";
 import ChatHeader from "@flow/ui-core/components/ChatHeader.vue";
 import Composer from "@flow/ui-core/components/Composer.vue";
@@ -128,6 +149,7 @@ import { installShortcuts } from "@flow/ui-core/shortcuts.js";
 import { installFocusRings } from "@flow/ui-core/focusRings.js";
 import { installViewport } from "@flow/ui-core/viewport.js";
 import { provideComposerHeight } from "@flow/ui-core/composerHeight.js";
+import { provideFileDrop } from "@flow/ui-core/fileDrop.js";
 import { layout, measureLayoutBy } from "@flow/ui-core/layout.js";
 import { createFlowStore } from "@flow/ui-core/store.js";
 
@@ -141,7 +163,7 @@ import { FORMS } from "../pages/pages.js";
 import FlowSettings from "../settings/FlowSettings.vue";
 import { SPECS } from "../settings/specs.js";
 import AgentPalette from "./AgentPalette.vue";
-import AgentPicker from "./AgentPicker.vue";
+import ChatPickers from "./ChatPickers.vue";
 import FeedbackBar from "./FeedbackBar.vue";
 import SetupState from "./SetupState.vue";
 import ShareChat from "./ShareChat.vue";
@@ -165,8 +187,9 @@ const COMMANDS = [
 ];
 // the approval modes in Flow's terms: its tools act on documents, not files
 const MODES = [
+	{ id: "auto", label: "Auto", desc: "A helper model handles approvals." },
 	{ id: "ask", label: "Ask for approval", desc: "Asks before changing anything." },
-	{ id: "auto", label: "Auto-approve", desc: "Runs everything without asking." },
+	{ id: "auto_approve", label: "Auto-approve", desc: "Runs everything without asking." },
 ];
 
 const props = defineProps({ boot: { type: Object, required: true } });
@@ -258,6 +281,25 @@ watch(
 const noSidebar = computed(() => !layout.phone && (layout.narrow || inPanel));
 provide("noSidebar", noSidebar);
 const sidebarOpen = computed(() => !noSidebar.value && store.state.sidebarOpen);
+// the sidebar menu's way to Desk and the other apps, asked for once a sidebar shows
+const apps = ref([]);
+watch(
+	noSidebar,
+	async (none) => {
+		if (none || apps.value.length) return;
+		const installed = await transport.call("frappe.apps.get_apps").catch(() => []);
+		apps.value = [{ title: "Desk", route: "/desk", logo: "/assets/frappe/images/frappe-framework-logo.svg" }, ...installed];
+	},
+	{ immediate: true }
+);
+async function logout() {
+	await transport.call("logout");
+	window.location.assign("/login");
+}
+// the way back to the rest of the site, in the floating sidebar's menu; the sidebar's own menu
+// lists Desk under Apps
+const APP_MENU = [{ label: "Go to Desk", icon: "lucide-external-link", onClick: () => (window.location.href = "/app") }];
+provide("appMenu", APP_MENU);
 // the composer asks in the name of the agent that answers
 const placeholder = computed(() => {
 	const name = store.state.session?.agent ?? page.state.agent;
@@ -266,7 +308,7 @@ const placeholder = computed(() => {
 });
 // the header names a chat's agent where the harness names its folder
 const { current: agent, title: agentTitle } = useAgent(store, page);
-const agentCrumb = computed(() => (agent.value ? { icon: "lucide-bot", label: agentTitle.value } : null));
+const agentCrumb = computed(() => (agent.value ? { label: agentTitle.value } : null));
 // someone else's chat is view-only: its tools would run as its owner
 const readOnly = computed(() => Boolean(page.state.readOnly[store.state.sessionId]));
 // only its owner shares a chat, once it has loaded and said who that is
@@ -292,6 +334,11 @@ const readOnlyNote = computed(() => {
 const needsSetup = computed(
 	() => !page.state.boot.models?.length || !page.state.boot.agents?.length
 );
+// an error's link: settings on its tab
+function openSettings(tab) {
+	page.state.settingsTab = tab;
+	store.setSettingsOpen(true);
+}
 
 // the launcher listens for the header's ×; a new tab takes the chat over from the panel
 const host = inject("flowHost", null);
@@ -303,7 +350,10 @@ function openInTab() {
 
 // the composer floats over the list, which pads by its measured height
 const composer = ref(null);
+const chat = ref(null);
+const root = ref(null);
 provideComposerHeight(composer);
+provideFileDrop(chat, composer, root);
 
 watch(
 	() => store.state.toast,
@@ -318,6 +368,13 @@ watch(
 const route = useRoute();
 const router = useRouter();
 // a setup form's record in the chat's place, for whoever may read its records
+// a started chat's + menu after Attach: skills where there are some or one can be added. A new chat
+// has its own buttons for its agent and skills (ChatPickers)
+const plusLists = computed(() =>
+	(store.state.skills ?? []).length || page.can("Flow Skill", "create")
+		? [{ id: "skills", label: "Skills", icon: "lucide-book-open", startedOnly: true }]
+		: []
+);
 const forms = computed(() => FORMS.filter((item) => page.can(SPECS[item.key].doctype, "read")));
 const pageKind = computed(() => {
 	const { kind } = route.params;
@@ -335,7 +392,9 @@ watch(
 	() => route.params.session,
 	(id) => {
 		if (pageKind.value) return; // the chat waits behind a page as it was, its box and all
-		if (id && id !== store.state.sessionId) store.openSession(id);
+		// in the panel, a route the user didn't pick: the chat it last showed, or Back to one,
+		// either of which may since be gone
+		if (id && id !== store.state.sessionId) store.openSession(id, { quiet: inPanel });
 		else if (!id && store.state.sessionId) store.startNewChat();
 	}
 );
@@ -377,7 +436,6 @@ let uninstallShortcuts = null;
 let uninstallFocusRings = null;
 let uninstallViewport = null;
 let unmeasure = null;
-const root = ref(null);
 onMounted(async () => {
 	// an island lays out by its own box, which a panel narrows; the page's width says nothing
 	unmeasure = measureLayoutBy(root.value);
@@ -401,7 +459,7 @@ onMounted(async () => {
 		(route.params.session ||
 			store.state.sessions.some((session) => session.session_id === wanted))
 	)
-		store.openSession(wanted);
+		store.openSession(wanted, { quiet: inPanel });
 });
 onBeforeUnmount(() => {
 	uninstallShortcuts?.();

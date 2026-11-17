@@ -12,7 +12,11 @@
 		:class="[
 			workspace.maximized
 				? 'fixed inset-0 z-40'
-				: 'fixed inset-y-0 right-0 z-30 w-[var(--workspace-w)] max-w-full flex-none md:relative',
+				: [
+						'fixed inset-y-0 right-0 z-30 flex-none md:relative',
+						// a narrow frame (a phone, a panel beside a page) shows one pane: this one fills it
+						layout.narrow ? 'w-full' : 'w-[var(--workspace-w)] max-w-full',
+					],
 			sliding ? 'transition-[transform,margin-right] duration-200 ease-in-out' : '',
 			// mirror of the left sidebar: no transform while open (a transformed
 			// aside would clip monaco's fixed overflow widgets and dialogs)
@@ -34,10 +38,22 @@
 		<!-- panel-level tab strip: one tab per open item of any kind (a file, a sub-agent;
 		     browser/terminal later) — kind-specific chrome lives in the view below.
 		     The view picker (nothing open) renders without it. -->
+		<!-- beside a page's navbar, as tall as the chat's header so their borders meet it -->
 		<div
 			v-if="viewActive"
-			class="flex h-11 flex-none items-stretch border-b border-outline-gray-1 bg-surface-base"
+			class="flex flex-none items-stretch border-b border-outline-gray-1 bg-surface-base"
+			:class="besideNavbar ? ['box-content', besideNavbar === 'desk' ? 'h-12' : 'h-10.5'] : 'h-11'"
 		>
+			<!-- a narrow frame shows one pane: the way back to the chat -->
+			<Button
+				v-if="layout.narrow"
+				variant="ghost"
+				class="my-1 ml-1 flex-none self-center"
+				title="Back to chat"
+				@click="flow.setWorkspaceOpen(false)"
+			>
+				<template #icon><span class="lucide-arrow-left size-4" aria-hidden="true" /></template>
+			</Button>
 			<!-- flex-1 makes the strip's width definite (the whole row minus the window
 			     controls), so tabs hold their basis cap and shrink together only once
 			     they stop fitting — a shrink-to-fit strip would hug the labels instead -->
@@ -93,25 +109,32 @@
 				<slot name="actions" />
 			</div>
 			<!-- a narrow frame's panel already fills it -->
-			<button
+			<Button
 				v-if="!layout.narrow"
-				class="flow-icon-btn my-1 flex-none self-center"
+				variant="ghost"
+				class="my-1 flex-none self-center"
 				:title="workspace.maximized ? 'Exit full screen' : 'Full screen'"
 				@click="flow.toggleWorkspaceMaximized()"
 			>
-				<span
-					class="size-3.5"
-					:class="workspace.maximized ? 'lucide-minimize-2' : 'lucide-maximize-2'"
-					aria-hidden="true"
-				/>
-			</button>
-			<button
-				class="flow-icon-btn my-1 mr-1 flex-none self-center"
+				<template #icon>
+					<span
+						class="size-4"
+						:class="workspace.maximized ? 'lucide-minimize-2' : 'lucide-maximize-2'"
+						aria-hidden="true"
+					/>
+				</template>
+			</Button>
+			<Button
+				v-if="!layout.narrow"
+				variant="ghost"
+				class="my-1 mr-1 flex-none self-center"
 				title="Close panel"
 				@click="flow.setWorkspaceOpen(false)"
 			>
-				<span class="lucide-panel-left size-4 -scale-x-100" aria-hidden="true" />
-			</button>
+				<template #icon>
+					<span class="lucide-panel-left size-4 -scale-x-100" aria-hidden="true" />
+				</template>
+			</Button>
 		</div>
 
 		<!-- kind-specific body: a sub-agent's thread, or the host's view of any other tab -->
@@ -125,21 +148,25 @@
 		     panel's window controls stay reachable) -->
 		<div v-if="!viewActive" class="relative flex flex-1 flex-col items-center justify-center gap-3 px-6">
 			<span class="absolute right-1 top-1 flex">
-				<button
+				<Button
 					v-if="!layout.narrow"
-					class="flow-icon-btn"
+					variant="ghost"
 					:title="workspace.maximized ? 'Exit full screen' : 'Full screen'"
 					@click="flow.toggleWorkspaceMaximized()"
 				>
-					<span
-						class="size-3.5"
-						:class="workspace.maximized ? 'lucide-minimize-2' : 'lucide-maximize-2'"
-						aria-hidden="true"
-					/>
-				</button>
-				<button class="flow-icon-btn" title="Close panel" @click="flow.setWorkspaceOpen(false)">
-					<span class="lucide-panel-left size-4 -scale-x-100" aria-hidden="true" />
-				</button>
+					<template #icon>
+						<span
+							class="size-4"
+							:class="workspace.maximized ? 'lucide-minimize-2' : 'lucide-maximize-2'"
+							aria-hidden="true"
+						/>
+					</template>
+				</Button>
+				<Button variant="ghost" title="Close panel" @click="flow.setWorkspaceOpen(false)">
+					<template #icon>
+						<span class="lucide-panel-left size-4 -scale-x-100" aria-hidden="true" />
+					</template>
+				</Button>
 			</span>
 			<slot name="empty" />
 		</div>
@@ -148,10 +175,16 @@
 
 <script setup>
 import { computed, inject, ref } from "vue"
+import { Button } from "frappe-ui/src/components/Button"
 import { dialog } from "frappe-ui/src/utils/dialog"
 
 import SubagentView from "./SubagentView.vue"
 import { layout, useSlide } from "../layout.js"
+
+defineProps({
+	// "desk" or "app": the page's navbar the panel's strip lines up with, as ChatHeader's
+	besideNavbar: { type: String, default: null },
+})
 
 const flow = inject("flow")
 const workspace = computed(() => flow.state.workspace)
@@ -199,7 +232,7 @@ function startResize(event) {
 	handle.setPointerCapture(event.pointerId)
 	const startX = event.clientX
 	const startWidth = width.value
-	const move = (e) => (width.value = clampWidth(startWidth - (e.clientX - startX)))
+	const move = (e) => (width.value = clampWidth(startWidth - (e.clientX - startX) / layout.zoom))
 	const up = (e) => {
 		handle.releasePointerCapture(e.pointerId)
 		handle.removeEventListener("pointermove", move)
