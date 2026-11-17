@@ -1084,6 +1084,7 @@ VALID_UTILS = (
 	"parse_and_map_trackers_from_url",
 	"map_trackers",
 	"get_url",
+	"get_url_prefix",  # IIAB: the sub-path the templates spell (base.html spells the boot-translations fetch with it)
 	"get_host_name_from_request",
 	"url_contains_port",
 	"get_host_name",
